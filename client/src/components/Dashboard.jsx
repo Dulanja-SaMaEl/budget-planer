@@ -1,16 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, 
   AreaChart, Area, XAxis, YAxis, CartesianGrid 
 } from 'recharts';
 import { 
   Wallet, TrendingUp, PiggyBank, Scale, 
-  PlusCircle, Calculator, Heart, ShieldCheck, Target, ArrowUpRight, Settings, Edit2
+  PlusCircle, Calculator, Heart, ShieldCheck, Target, ArrowUpRight, Settings, Edit2, Database, Wifi
 } from 'lucide-react';
 
 export default function Dashboard() {
   // Customizable Currency Symbol
   const [currency, setCurrency] = useState('Rs.');
+
+  // API & Database Connection Health Check State
+  const [apiStatus, setApiStatus] = useState({
+    checked: false,
+    backend: 'checking',
+    database: 'checking',
+    message: 'Checking API status...'
+  });
 
   // Customizable Partner Profiles & Incomes
   const [partnerA, setPartnerA] = useState({ name: 'Dulanja', income: 450000, payDate: '25th of every month' });
@@ -37,6 +45,30 @@ export default function Dashboard() {
   // Modal / Form state for adding new goal
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [newGoal, setNewGoal] = useState({ title: '', category: 'General', target: 500000, current: 0 });
+
+  // Live API Connection Verification Effect
+  useEffect(() => {
+    const verifyConnection = async () => {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+      try {
+        const res = await fetch(`${apiUrl}/health`);
+        if (res.ok) {
+          const data = await res.json();
+          setApiStatus({
+            checked: true,
+            backend: 'connected',
+            database: data.database === 'connected' ? 'connected' : 'disconnected',
+            message: data.database === 'connected' ? 'Supabase DB Live' : 'Express API Live (DB env pending)'
+          });
+        } else {
+          setApiStatus({ checked: true, backend: 'disconnected', database: 'disconnected', message: 'Backend Unreachable' });
+        }
+      } catch (err) {
+        setApiStatus({ checked: true, backend: 'disconnected', database: 'disconnected', message: 'Demo Mode (Client Only)' });
+      }
+    };
+    verifyConnection();
+  }, []);
 
   // Calculated Combined Financial Metrics
   const combinedIncome = Number(partnerA.income) + Number(partnerB.income);
@@ -102,9 +134,24 @@ export default function Dashboard() {
       {/* Top Header */}
       <header className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 pb-6 border-b border-slate-800">
         <div>
-          <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm tracking-wide uppercase">
-            <Heart className="w-4 h-4 fill-emerald-400 text-emerald-400" /> Couples Financial Harmony
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1.5 text-emerald-400 font-semibold text-xs tracking-wide uppercase">
+              <Heart className="w-4 h-4 fill-emerald-400 text-emerald-400" /> Couples Financial Harmony
+            </span>
+
+            {/* Live Backend & DB Connection Badge */}
+            <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1.5 ${
+              apiStatus.database === 'connected' 
+                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                : apiStatus.backend === 'connected'
+                ? 'bg-blue-500/10 text-blue-400 border border-blue-500/30'
+                : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+            }`}>
+              <Database className="w-3 h-3" />
+              {apiStatus.message}
+            </span>
           </div>
+
           <h1 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight mt-1">
             {partnerA.name} & {partnerB.name}'s Wealth Dashboard
           </h1>

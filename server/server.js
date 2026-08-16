@@ -23,12 +23,32 @@ app.use(express.json());
 
 // Routes
 const dashboardRoutes = require('./routes/dashboard');
-
 app.use('/api/dashboard', dashboardRoutes);
 
-// Health Check Endpoint for Render.com
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', timestamp: new Date() });
+// Health & Database Connection Check Endpoint
+app.get('/api/health', async (req, res) => {
+  try {
+    if (!process.env.DATABASE_URL) {
+      return res.status(200).json({
+        status: 'online',
+        database: 'disconnected',
+        message: 'DATABASE_URL environment variable is missing'
+      });
+    }
+
+    const dbRes = await pool.query('SELECT NOW() as current_time');
+    res.status(200).json({
+      status: 'online',
+      database: 'connected',
+      timestamp: dbRes.rows[0].current_time
+    });
+  } catch (err) {
+    res.status(200).json({
+      status: 'online',
+      database: 'error',
+      error: err.message
+    });
+  }
 });
 
 // Root Route
