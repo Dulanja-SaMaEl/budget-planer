@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import { 
   Wallet, TrendingUp, PiggyBank, Scale, 
-  PlusCircle, Calculator, Heart, ShieldCheck, Target, ArrowUpRight, Settings, Edit2, Database, Trash2, CheckCircle2
+  PlusCircle, Calculator, Heart, ShieldCheck, Target, ArrowUpRight, Settings, Edit2, Database, Trash2, CheckCircle2, Loader2
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -66,8 +66,9 @@ export default function Dashboard() {
     date: new Date().toISOString().split('T')[0]
   });
 
-  // Live API Connection Verification Effect
+  // Live API Connection Verification Effect with Retry / Wakeup Handler
   useEffect(() => {
+    let attempts = 0;
     const verifyConnection = async () => {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
       try {
@@ -84,7 +85,13 @@ export default function Dashboard() {
           setApiStatus({ checked: true, backend: 'disconnected', database: 'disconnected', message: 'Backend Unreachable' });
         }
       } catch (err) {
-        setApiStatus({ checked: true, backend: 'disconnected', database: 'disconnected', message: 'Demo Mode (Client Only)' });
+        if (attempts < 3) {
+          attempts++;
+          setApiStatus({ checked: false, backend: 'waking', database: 'checking', message: 'Waking Render Server...' });
+          setTimeout(verifyConnection, 4000);
+        } else {
+          setApiStatus({ checked: true, backend: 'disconnected', database: 'disconnected', message: 'Demo Mode (Client Only)' });
+        }
       }
     };
     verifyConnection();
@@ -232,9 +239,11 @@ export default function Dashboard() {
                 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                 : apiStatus.backend === 'connected'
                 ? 'bg-blue-500/10 text-blue-400 border border-blue-500/30'
+                : apiStatus.backend === 'waking'
+                ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30'
                 : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
             }`}>
-              <Database className="w-3 h-3" />
+              {apiStatus.backend === 'waking' ? <Loader2 className="w-3 h-3 animate-spin text-indigo-400" /> : <Database className="w-3 h-3" />}
               {apiStatus.message}
             </span>
           </div>

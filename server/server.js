@@ -14,9 +14,9 @@ const pool = new Pool({
 
 app.set('dbPool', pool);
 
-// Middleware
+// Middleware - Allow cross-origin requests from Vercel frontend
 app.use(cors({
-  origin: process.env.CLIENT_ORIGIN || '*',
+  origin: true,
   credentials: true
 }));
 app.use(express.json());
