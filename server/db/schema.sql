@@ -55,10 +55,29 @@ CREATE TABLE IF NOT EXISTS savings_goals (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Household Settings & Preferences (Bill Splitter, Wealth Projections, Currency, Spend)
+CREATE TABLE IF NOT EXISTS household_settings (
+    household_id UUID PRIMARY KEY REFERENCES households(id) ON DELETE CASCADE,
+    currency VARCHAR(10) DEFAULT 'Rs.',
+    sample_bill_amount DECIMAL(12, 2) DEFAULT 100000.00,
+    starting_savings DECIMAL(12, 2) DEFAULT 1000000.00,
+    monthly_contribution DECIMAL(12, 2) DEFAULT 150000.00,
+    annual_return DECIMAL(5, 2) DEFAULT 10.00,
+    needs_actual DECIMAL(12, 2) DEFAULT 320000.00,
+    wants_actual DECIMAL(12, 2) DEFAULT 180000.00,
+    savings_actual DECIMAL(12, 2) DEFAULT 150000.00,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Seed Default Household for Dulanja & Diyana
 INSERT INTO households (id, name) 
 VALUES ('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'Dulanja & Diyana Household')
 ON CONFLICT (id) DO NOTHING;
+
+-- Seed Settings
+INSERT INTO household_settings (household_id, currency, sample_bill_amount, starting_savings, monthly_contribution, annual_return, needs_actual, wants_actual, savings_actual)
+VALUES ('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'Rs.', 100000.00, 1000000.00, 150000.00, 10.00, 320000.00, 180000.00, 150000.00)
+ON CONFLICT (household_id) DO NOTHING;
 
 -- Seed Partner Profiles
 INSERT INTO users (household_id, name, email, monthly_net_income, pay_day) VALUES 

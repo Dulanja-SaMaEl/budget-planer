@@ -9,7 +9,8 @@ router.get('/', async (req, res) => {
     const pool = req.app.get('dbPool');
     if (pool && process.env.DATABASE_URL) {
       const result = await pool.query(
-        'SELECT id, title, amount, paid_by_name as "paidBy", category, split_type as "splitType", to_char(transaction_date, \'YYYY-MM-DD\') as date FROM transactions ORDER BY created_at DESC LIMIT 50'
+        'SELECT id, title, amount, paid_by_name as "paidBy", category, split_type as "splitType", to_char(transaction_date, \'YYYY-MM-DD\') as date FROM transactions WHERE household_id = $1 ORDER BY created_at DESC LIMIT 50',
+        [DEMO_HOUSEHOLD_ID]
       );
       return res.json({ success: true, data: result.rows.map(r => ({ ...r, amount: Number(r.amount) })) });
     }
@@ -69,7 +70,11 @@ router.delete('/:id', async (req, res) => {
     const pool = req.app.get('dbPool');
 
     if (pool && process.env.DATABASE_URL) {
-      await pool.query('DELETE FROM transactions WHERE id = $1 OR id::text = $2', [id, id]);
+      try {
+        await pool.query('DELETE FROM transactions WHERE id::text = $1', [String(id)]);
+      } catch (dbErr) {
+        console.error('Database deletion query error:', dbErr.message);
+      }
     }
 
     res.json({ success: true, message: 'Expense deleted' });

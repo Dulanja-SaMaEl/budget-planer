@@ -5,10 +5,13 @@ import {
 } from 'recharts';
 import { 
   Wallet, TrendingUp, PiggyBank, Scale, 
-  PlusCircle, Calculator, Heart, ShieldCheck, Target, ArrowUpRight, Settings, Edit2, Database, Trash2, CheckCircle2, Loader2
+  PlusCircle, Calculator, Heart, ShieldCheck, Target, ArrowUpRight, Settings, Edit2, Database, Trash2, CheckCircle2, Loader2, Eye, X
 } from 'lucide-react';
 
 export default function Dashboard() {
+  // Page Initial Loading State
+  const [loading, setLoading] = useState(true);
+
   // Customizable Currency Symbol
   const [currency, setCurrency] = useState('Rs.');
 
@@ -20,8 +23,8 @@ export default function Dashboard() {
     message: 'Checking API status...'
   });
 
-  // Salary Saved Notification Banner
-  const [salaryNotification, setSalaryNotification] = useState(false);
+  // Notifications
+  const [notification, setNotification] = useState('');
 
   // Customizable Partner Profiles & Incomes
   const [partnerA, setPartnerA] = useState({ name: 'Dulanja', income: 450000, payDate: '25th of every month' });
@@ -35,7 +38,7 @@ export default function Dashboard() {
 
   // Wealth Compound Future Projection Settings
   const [monthlyContribution, setMonthlyContribution] = useState(150000);
-  const [annualReturn, setAnnualReturn] = useState(10); // 10% expected return rate
+  const [annualReturn, setAnnualReturn] = useState(10);
   const [startingSavings, setStartingSavings] = useState(1000000);
 
   // Editable Savings Goals List
@@ -47,12 +50,12 @@ export default function Dashboard() {
 
   // Logged Daily Expenses History
   const [expenses, setExpenses] = useState([
-    { id: 1, title: 'Keells Supermarket Groceries', amount: 45000, paidBy: 'Dulanja', category: 'Needs', splitType: 'Proportional', date: '2026-08-16' },
-    { id: 2, title: 'Fiber Broadband & Electricity', amount: 18000, paidBy: 'Diyana', category: 'Needs', splitType: 'Proportional', date: '2026-08-15' },
-    { id: 3, title: 'Weekend Dinner & Drinks', amount: 12500, paidBy: 'Dulanja', category: 'Wants', splitType: '50/50', date: '2026-08-14' }
+    { id: '1', title: 'Keells Supermarket Groceries', amount: 45000, paidBy: 'Dulanja', category: 'Needs', splitType: 'Proportional', date: '2026-08-16' },
+    { id: '2', title: 'Fiber Broadband & Electricity', amount: 18000, paidBy: 'Diyana', category: 'Needs', splitType: 'Proportional', date: '2026-08-15' },
+    { id: '3', title: 'Weekend Dinner & Drinks', amount: 12500, paidBy: 'Dulanja', category: 'Wants', splitType: '50/50', date: '2026-08-14' }
   ]);
 
-  // Modal / Form state for Add Goal & Add Expense
+  // Modals
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [newGoal, setNewGoal] = useState({ title: '', category: 'General', target: 500000, current: 0 });
 
@@ -65,6 +68,14 @@ export default function Dashboard() {
     splitType: 'Proportional',
     date: new Date().toISOString().split('T')[0]
   });
+
+  const [selectedExpense, setSelectedExpense] = useState(null); // For View Expense Detail Modal
+
+  // Helper notification trigger
+  const showToast = (msg) => {
+    setNotification(msg);
+    setTimeout(() => setNotification(''), 3000);
+  };
 
   // Live API Connection & Persistent Data Fetching Effect
   useEffect(() => {
@@ -91,16 +102,29 @@ export default function Dashboard() {
               if (dashData.success && dashData.data) {
                 if (dashData.data.partnerA) setPartnerA(dashData.data.partnerA);
                 if (dashData.data.partnerB) setPartnerB(dashData.data.partnerB);
-                if (dashData.data.expenses && dashData.data.expenses.length > 0) setExpenses(dashData.data.expenses);
+                if (dashData.data.expenses) setExpenses(dashData.data.expenses);
                 if (dashData.data.goals && dashData.data.goals.length > 0) setGoals(dashData.data.goals);
+                
+                if (dashData.data.settings) {
+                  const s = dashData.data.settings;
+                  if (s.currency) setCurrency(s.currency);
+                  if (s.sampleBill) setSampleBill(s.sampleBill);
+                  if (s.startingSavings) setStartingSavings(s.startingSavings);
+                  if (s.monthlyContribution) setMonthlyContribution(s.monthlyContribution);
+                  if (s.annualReturn) setAnnualReturn(s.annualReturn);
+                  if (s.actualSpend) setActualSpend(s.actualSpend);
+                }
               }
             }
           } catch (fetchErr) {
             console.log('Using default dashboard state:', fetchErr.message);
+          } finally {
+            setLoading(false);
           }
 
         } else {
           setApiStatus({ checked: true, backend: 'disconnected', database: 'disconnected', message: 'Backend Unreachable' });
+          setLoading(false);
         }
       } catch (err) {
         if (attempts < 3) {
@@ -109,6 +133,7 @@ export default function Dashboard() {
           setTimeout(verifyAndFetchData, 4000);
         } else {
           setApiStatus({ checked: true, backend: 'disconnected', database: 'disconnected', message: 'Demo Mode (Client Only)' });
+          setLoading(false);
         }
       }
     };
@@ -133,8 +158,31 @@ export default function Dashboard() {
     } catch (err) {
       console.log('Local salary state updated.');
     }
-    setSalaryNotification(true);
-    setTimeout(() => setSalaryNotification(false), 3000);
+    showToast('Salaries saved to Supabase DB!');
+  };
+
+  // Sync Household Settings (Bill Splitter, Wealth Projection, Currency, Actual Spend) to DB
+  const handleSaveSettings = async (customSettings = {}) => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
+    const payload = {
+      currency,
+      sampleBill,
+      startingSavings,
+      monthlyContribution,
+      annualReturn,
+      actualSpend,
+      ...customSettings
+    };
+    try {
+      await fetch(`${apiUrl}/dashboard/settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch (err) {
+      console.log('Settings saved locally.');
+    }
+    showToast('Settings saved to Supabase DB!');
   };
 
   // Calculated Combined Financial Metrics
@@ -194,6 +242,7 @@ export default function Dashboard() {
     ]);
     setNewGoal({ title: '', category: 'General', target: 500000, current: 0 });
     setShowGoalModal(false);
+    showToast('Goal added successfully!');
   };
 
   const handleAddExpense = async (e) => {
@@ -202,7 +251,7 @@ export default function Dashboard() {
 
     const amt = Number(newExpense.amount);
     const item = {
-      id: Date.now(),
+      id: Date.now().toString(),
       title: newExpense.title,
       amount: amt,
       paidBy: newExpense.paidBy,
@@ -213,25 +262,31 @@ export default function Dashboard() {
 
     setExpenses([item, ...expenses]);
 
-    if (newExpense.category === 'Needs') {
-      setActualSpend(prev => ({ ...prev, needs: prev.needs + amt }));
-    } else if (newExpense.category === 'Wants') {
-      setActualSpend(prev => ({ ...prev, wants: prev.wants + amt }));
-    } else if (newExpense.category === 'Savings') {
-      setActualSpend(prev => ({ ...prev, savings: prev.savings + amt }));
-    }
+    let updatedSpend = { ...actualSpend };
+    if (newExpense.category === 'Needs') updatedSpend.needs += amt;
+    if (newExpense.category === 'Wants') updatedSpend.wants += amt;
+    if (newExpense.category === 'Savings') updatedSpend.savings += amt;
+    setActualSpend(updatedSpend);
 
     // Persist to Supabase Backend
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
     try {
-      await fetch(`${apiUrl}/expenses`, {
+      const res = await fetch(`${apiUrl}/expenses`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(item)
       });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.expense) {
+          setExpenses(prev => [data.expense, ...prev.filter(i => i.id !== item.id)]);
+        }
+      }
     } catch (err) {
       console.log('Expense added locally.');
     }
+
+    handleSaveSettings({ actualSpend: updatedSpend });
 
     setNewExpense({
       title: '',
@@ -242,28 +297,55 @@ export default function Dashboard() {
       date: new Date().toISOString().split('T')[0]
     });
     setShowExpenseModal(false);
+    showToast('Expense logged & saved!');
   };
 
   const handleDeleteExpense = async (id) => {
-    const item = expenses.find(e => e.id === id);
+    const item = expenses.find(e => String(e.id) === String(id));
     if (item) {
-      if (item.category === 'Needs') setActualSpend(prev => ({ ...prev, needs: Math.max(0, prev.needs - item.amount) }));
-      if (item.category === 'Wants') setActualSpend(prev => ({ ...prev, wants: Math.max(0, prev.wants - item.amount) }));
-      if (item.category === 'Savings') setActualSpend(prev => ({ ...prev, savings: Math.max(0, prev.savings - item.amount) }));
+      let updatedSpend = { ...actualSpend };
+      if (item.category === 'Needs') updatedSpend.needs = Math.max(0, updatedSpend.needs - item.amount);
+      if (item.category === 'Wants') updatedSpend.wants = Math.max(0, updatedSpend.wants - item.amount);
+      if (item.category === 'Savings') updatedSpend.savings = Math.max(0, updatedSpend.savings - item.amount);
+      setActualSpend(updatedSpend);
+      handleSaveSettings({ actualSpend: updatedSpend });
     }
-    setExpenses(expenses.filter(e => e.id !== id));
+
+    setExpenses(prev => prev.filter(e => String(e.id) !== String(id)));
 
     // Delete from Supabase Backend
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
     try {
       await fetch(`${apiUrl}/expenses/${id}`, { method: 'DELETE' });
     } catch (err) {
-      console.log('Expense removed locally.');
+      console.log('Expense deleted locally.');
     }
+
+    showToast('Expense deleted!');
   };
+
+  // Full Screen Skeleton Loader to prevent initial hardcoded values flash
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-6 font-sans">
+        <div className="flex flex-col items-center space-y-4">
+          <Loader2 className="w-10 h-10 text-emerald-400 animate-spin" />
+          <h2 className="text-xl font-bold text-white tracking-tight">Loading Dulanja & Diyana's Financial Data...</h2>
+          <p className="text-slate-400 text-xs">Connecting securely to Supabase PostgreSQL database...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
+      {/* Top Notification Toast */}
+      {notification && (
+        <div className="fixed top-4 right-4 bg-emerald-600 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-xl z-50 flex items-center gap-2 animate-bounce">
+          <CheckCircle2 className="w-4 h-4" /> {notification}
+        </div>
+      )}
+
       {/* Top Header */}
       <header className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 pb-6 border-b border-slate-800">
         <div>
@@ -304,6 +386,7 @@ export default function Dashboard() {
               type="text" 
               value={currency} 
               onChange={(e) => setCurrency(e.target.value)}
+              onBlur={() => handleSaveSettings({ currency })}
               className="w-14 bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-emerald-400 font-bold text-xs focus:outline-none focus:border-emerald-500"
             />
           </div>
@@ -408,12 +491,6 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {salaryNotification && (
-              <div className="mb-4 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs px-3 py-2 rounded-xl flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4" /> Salaries saved to Supabase DB & split percentages updated!
-              </div>
-            )}
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Partner A (Dulanja) */}
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/80 space-y-3">
@@ -504,7 +581,7 @@ export default function Dashboard() {
                     <th className="pb-3 px-2">Category</th>
                     <th className="pb-3 px-2">Paid By</th>
                     <th className="pb-3 px-2">Amount</th>
-                    <th className="pb-3 px-2 text-right">Action</th>
+                    <th className="pb-3 px-2 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
@@ -531,7 +608,14 @@ export default function Dashboard() {
                       <td className="py-3 px-2 font-bold text-white whitespace-nowrap">
                         {currency} {Number(exp.amount).toLocaleString()}
                       </td>
-                      <td className="py-3 px-2 text-right">
+                      <td className="py-3 px-2 text-right flex items-center justify-end gap-2">
+                        <button 
+                          onClick={() => setSelectedExpense(exp)}
+                          className="text-slate-400 hover:text-emerald-400 transition"
+                          title="View Details"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
                         <button 
                           onClick={() => handleDeleteExpense(exp.id)}
                           className="text-slate-500 hover:text-rose-400 transition"
@@ -549,9 +633,17 @@ export default function Dashboard() {
 
           {/* Expense Tracking (50/30/20 Rule) Card */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-            <h2 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-blue-400" /> Expense Budget Allocation (50/30/20 Rule)
-            </h2>
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-blue-400" /> Expense Budget Allocation (50/30/20 Rule)
+              </h2>
+              <button 
+                onClick={() => handleSaveSettings({ actualSpend })}
+                className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1 rounded-xl font-medium border border-slate-700 transition"
+              >
+                Save Spend Settings
+              </button>
+            </div>
             <p className="text-slate-400 text-xs mb-6">
               Adjust actual logged monthly spending to benchmark against Needs (50%), Wants (30%), and Savings (20%).
             </p>
@@ -654,34 +746,43 @@ export default function Dashboard() {
                 <p className="text-slate-400 text-xs mt-1">Compound interest growth simulator based on your joint contributions.</p>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800">
-                <div className="text-xs">
-                  <span className="text-slate-400 block">Initial Savings</span>
-                  <input 
-                    type="number" 
-                    value={startingSavings} 
-                    onChange={(e) => setStartingSavings(Number(e.target.value))}
-                    className="w-full bg-slate-900 text-emerald-400 font-bold px-2 py-1 rounded text-xs border border-slate-700"
-                  />
-                </div>
-                <div className="text-xs">
-                  <span className="text-slate-400 block">Monthly Contribution</span>
-                  <input 
-                    type="number" 
-                    value={monthlyContribution} 
-                    onChange={(e) => setMonthlyContribution(Number(e.target.value))}
-                    className="w-full bg-slate-900 text-emerald-400 font-bold px-2 py-1 rounded text-xs border border-slate-700"
-                  />
-                </div>
-                <div className="text-xs">
-                  <span className="text-slate-400 block">Return % / yr</span>
-                  <input 
-                    type="number" 
-                    value={annualReturn} 
-                    onChange={(e) => setAnnualReturn(Number(e.target.value))}
-                    className="w-full bg-slate-900 text-white font-bold px-2 py-1 rounded text-xs border border-slate-700"
-                  />
-                </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => handleSaveSettings({ startingSavings, monthlyContribution, annualReturn })}
+                  className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-semibold transition"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Save Projection
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 bg-slate-950 p-3 rounded-xl border border-slate-800 mb-6">
+              <div className="text-xs">
+                <span className="text-slate-400 block mb-1">Initial Savings</span>
+                <input 
+                  type="number" 
+                  value={startingSavings} 
+                  onChange={(e) => setStartingSavings(Number(e.target.value))}
+                  className="w-full bg-slate-900 text-emerald-400 font-bold px-2.5 py-1.5 rounded-lg text-xs border border-slate-700"
+                />
+              </div>
+              <div className="text-xs">
+                <span className="text-slate-400 block mb-1">Monthly Contribution</span>
+                <input 
+                  type="number" 
+                  value={monthlyContribution} 
+                  onChange={(e) => setMonthlyContribution(Number(e.target.value))}
+                  className="w-full bg-slate-900 text-emerald-400 font-bold px-2.5 py-1.5 rounded-lg text-xs border border-slate-700"
+                />
+              </div>
+              <div className="text-xs">
+                <span className="text-slate-400 block mb-1">Return % / yr</span>
+                <input 
+                  type="number" 
+                  value={annualReturn} 
+                  onChange={(e) => setAnnualReturn(Number(e.target.value))}
+                  className="w-full bg-slate-900 text-white font-bold px-2.5 py-1.5 rounded-lg text-xs border border-slate-700"
+                />
               </div>
             </div>
 
@@ -711,9 +812,18 @@ export default function Dashboard() {
 
           {/* Interactive Proportional Bill Splitter */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
-            <h2 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
-              <Calculator className="w-5 h-5 text-indigo-400" /> Proportional Bill Splitter
-            </h2>
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <Calculator className="w-5 h-5 text-indigo-400" /> Proportional Bill Splitter
+              </h2>
+              <button 
+                onClick={() => handleSaveSettings({ sampleBill })}
+                className="text-xs bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 border border-indigo-500/30 px-3 py-1 rounded-xl font-semibold transition"
+              >
+                Save Split
+              </button>
+            </div>
+
             <p className="text-slate-400 text-xs mb-4">
               Enter any bill to split proportionally based on {partnerA.name} ({partnerASharePercent}%) and {partnerB.name} ({partnerBSharePercent}%).
             </p>
@@ -812,6 +922,76 @@ export default function Dashboard() {
         </div>
 
       </div>
+
+      {/* View Expense Detail Modal */}
+      {selectedExpense && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl relative">
+            <button 
+              onClick={() => setSelectedExpense(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className="text-xl font-bold text-white mb-1">{selectedExpense.title}</h3>
+            <p className="text-xs text-slate-400 mb-4">Expense Details & Partner Split Breakdown</p>
+
+            <div className="space-y-3 text-xs">
+              <div className="bg-slate-950 p-3 rounded-xl flex justify-between">
+                <span className="text-slate-400">Total Amount:</span>
+                <strong className="text-white font-bold text-sm">{currency} {Number(selectedExpense.amount).toLocaleString()}</strong>
+              </div>
+
+              <div className="bg-slate-950 p-3 rounded-xl flex justify-between">
+                <span className="text-slate-400">Paid By:</span>
+                <strong className="text-emerald-400 font-bold">{selectedExpense.paidBy}</strong>
+              </div>
+
+              <div className="bg-slate-950 p-3 rounded-xl flex justify-between">
+                <span className="text-slate-400">Rule Category:</span>
+                <span className={`px-2 py-0.5 rounded font-medium ${
+                  selectedExpense.category === 'Needs' ? 'bg-blue-500/10 text-blue-400' :
+                  selectedExpense.category === 'Wants' ? 'bg-pink-500/10 text-pink-400' :
+                  'bg-emerald-500/10 text-emerald-400'
+                }`}>{selectedExpense.category}</span>
+              </div>
+
+              <div className="bg-slate-950 p-3 rounded-xl flex justify-between">
+                <span className="text-slate-400">Split Method:</span>
+                <strong className="text-indigo-400 font-semibold">{selectedExpense.splitType}</strong>
+              </div>
+
+              <div className="bg-slate-950 p-3 rounded-xl flex justify-between">
+                <span className="text-slate-400">Transaction Date:</span>
+                <strong className="text-slate-200">{selectedExpense.date}</strong>
+              </div>
+
+              {/* Calculated Split Shares */}
+              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/80 space-y-2 mt-4">
+                <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-1">Fair Share Breakdown</div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-emerald-400 font-semibold">{partnerA.name}'s Share ({partnerASharePercent}%):</span>
+                  <span className="text-white font-bold">{currency} {((selectedExpense.amount * partnerASharePercent) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-indigo-400 font-semibold">{partnerB.name}'s Share ({partnerBSharePercent}%):</span>
+                  <span className="text-white font-bold">{currency} {((selectedExpense.amount * partnerBSharePercent) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-4">
+              <button 
+                onClick={() => setSelectedExpense(null)}
+                className="px-4 py-2 bg-slate-800 text-slate-200 text-xs rounded-xl font-medium"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add New Daily Expense Modal */}
       {showExpenseModal && (
