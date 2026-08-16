@@ -66,11 +66,12 @@ export default function Dashboard() {
     date: new Date().toISOString().split('T')[0]
   });
 
-  // Live API Connection Verification Effect with Retry / Wakeup Handler
+  // Live API Connection & Persistent Data Fetching Effect
   useEffect(() => {
     let attempts = 0;
-    const verifyConnection = async () => {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
+
+    const verifyAndFetchData = async () => {
       try {
         const res = await fetch(`${apiUrl}/health`);
         if (res.ok) {
@@ -81,6 +82,23 @@ export default function Dashboard() {
             database: data.database === 'connected' ? 'connected' : 'disconnected',
             message: data.database === 'connected' ? 'Supabase DB Live' : 'Render Backend Live (DB pending)'
           });
+
+          // Fetch Live Data from Supabase Backend
+          try {
+            const dashRes = await fetch(`${apiUrl}/dashboard`);
+            if (dashRes.ok) {
+              const dashData = await dashRes.json();
+              if (dashData.success && dashData.data) {
+                if (dashData.data.partnerA) setPartnerA(dashData.data.partnerA);
+                if (dashData.data.partnerB) setPartnerB(dashData.data.partnerB);
+                if (dashData.data.expenses && dashData.data.expenses.length > 0) setExpenses(dashData.data.expenses);
+                if (dashData.data.goals && dashData.data.goals.length > 0) setGoals(dashData.data.goals);
+              }
+            }
+          } catch (fetchErr) {
+            console.log('Using default dashboard state:', fetchErr.message);
+          }
+
         } else {
           setApiStatus({ checked: true, backend: 'disconnected', database: 'disconnected', message: 'Backend Unreachable' });
         }
@@ -88,16 +106,17 @@ export default function Dashboard() {
         if (attempts < 3) {
           attempts++;
           setApiStatus({ checked: false, backend: 'waking', database: 'checking', message: 'Waking Render Server...' });
-          setTimeout(verifyConnection, 4000);
+          setTimeout(verifyAndFetchData, 4000);
         } else {
           setApiStatus({ checked: true, backend: 'disconnected', database: 'disconnected', message: 'Demo Mode (Client Only)' });
         }
       }
     };
-    verifyConnection();
+
+    verifyAndFetchData();
   }, []);
 
-  // Sync Salary Changes to Backend API
+  // Sync Salary Changes to Supabase Backend DB
   const handleSaveSalaries = async () => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
     try {
@@ -177,7 +196,7 @@ export default function Dashboard() {
     setShowGoalModal(false);
   };
 
-  const handleAddExpense = (e) => {
+  const handleAddExpense = async (e) => {
     e.preventDefault();
     if (!newExpense.title || !newExpense.amount) return;
 
@@ -202,6 +221,18 @@ export default function Dashboard() {
       setActualSpend(prev => ({ ...prev, savings: prev.savings + amt }));
     }
 
+    // Persist to Supabase Backend
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
+    try {
+      await fetch(`${apiUrl}/expenses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(item)
+      });
+    } catch (err) {
+      console.log('Expense added locally.');
+    }
+
     setNewExpense({
       title: '',
       amount: 15000,
@@ -213,7 +244,7 @@ export default function Dashboard() {
     setShowExpenseModal(false);
   };
 
-  const handleDeleteExpense = (id) => {
+  const handleDeleteExpense = async (id) => {
     const item = expenses.find(e => e.id === id);
     if (item) {
       if (item.category === 'Needs') setActualSpend(prev => ({ ...prev, needs: Math.max(0, prev.needs - item.amount) }));
@@ -221,6 +252,14 @@ export default function Dashboard() {
       if (item.category === 'Savings') setActualSpend(prev => ({ ...prev, savings: Math.max(0, prev.savings - item.amount) }));
     }
     setExpenses(expenses.filter(e => e.id !== id));
+
+    // Delete from Supabase Backend
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
+    try {
+      await fetch(`${apiUrl}/expenses/${id}`, { method: 'DELETE' });
+    } catch (err) {
+      console.log('Expense removed locally.');
+    }
   };
 
   return (
@@ -371,7 +410,7 @@ export default function Dashboard() {
 
             {salaryNotification && (
               <div className="mb-4 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs px-3 py-2 rounded-xl flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4" /> Salaries saved & split percentages updated!
+                <CheckCircle2 className="w-4 h-4" /> Salaries saved to Supabase DB & split percentages updated!
               </div>
             )}
 

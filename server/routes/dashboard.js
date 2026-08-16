@@ -1,65 +1,65 @@
 const express = require('express');
 const router = express.Router();
-const authenticateToken = require('../middleware/auth');
 
-// GET /api/dashboard - Household Overview & Proportional Split Logic
+const DEMO_HOUSEHOLD_ID = 'a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d';
+
+// GET /api/dashboard - Fetch Household Financial Data from Supabase / DB
 router.get('/', async (req, res) => {
   try {
-    const household_id = req.user ? req.user.household_id : 'demo-household';
+    const pool = req.app.get('dbPool');
+    
+    let partnerA = { name: 'Dulanja', income: 450000, payDate: '25th of every month' };
+    let partnerB = { name: 'Diyana', income: 350000, payDate: '28th of every month' };
+    let expenses = [];
+    let goals = [];
 
-    const partnerA = { id: 'p1', name: 'Dulanja', netIncome: 450000, payFrequency: 'Monthly', payDay: '25th' };
-    const partnerB = { id: 'p2', name: 'Diyana', netIncome: 350000, payFrequency: 'Monthly', payDay: '28th' };
+    if (pool && process.env.DATABASE_URL) {
+      try {
+        // Fetch users from DB
+        const usersRes = await pool.query(
+          'SELECT name, monthly_net_income, pay_day FROM users WHERE household_id = $1 OR name IN (\'Dulanja\', \'Diyana\')',
+          [DEMO_HOUSEHOLD_ID]
+        );
 
-    const totalIncome = partnerA.netIncome + partnerB.netIncome; // Rs. 800,000
+        if (usersRes.rows.length > 0) {
+          const userA = usersRes.rows.find(u => u.name.toLowerCase() === 'dulanja');
+          const userB = usersRes.rows.find(u => u.name.toLowerCase() === 'diyana');
+          if (userA) partnerA = { name: userA.name, income: Number(userA.monthly_net_income), payDate: `${userA.pay_day || '25th'} of every month` };
+          if (userB) partnerB = { name: userB.name, income: Number(userB.monthly_net_income), payDate: `${userB.pay_day || '28th'} of every month` };
+        }
 
-    const partnerAShareRatio = totalIncome > 0 ? (partnerA.netIncome / totalIncome) : 0.5;
-    const partnerBShareRatio = totalIncome > 0 ? (partnerB.netIncome / totalIncome) : 0.5;
+        // Fetch transactions from DB
+        const transRes = await pool.query(
+          'SELECT id, title, amount, paid_by_name as "paidBy", category, split_type as "splitType", to_char(transaction_date, \'YYYY-MM-DD\') as date FROM transactions ORDER BY created_at DESC LIMIT 50'
+        );
+        if (transRes.rows.length > 0) {
+          expenses = transRes.rows.map(row => ({ ...row, amount: Number(row.amount) }));
+        }
 
-    const benchmarks = {
-      needsTarget: totalIncome * 0.50, // Rs. 400,000
-      wantsTarget: totalIncome * 0.30, // Rs. 240,000
-      savingsTarget: totalIncome * 0.20 // Rs. 160,000
-    };
+        // Fetch goals from DB
+        const goalsRes = await pool.query(
+          'SELECT id, title, category, target_amount as target, current_amount as current FROM savings_goals ORDER BY created_at ASC'
+        );
+        if (goalsRes.rows.length > 0) {
+          goals = goalsRes.rows.map((row, idx) => ({
+            ...row,
+            target: Number(row.target),
+            current: Number(row.current),
+            color: idx === 0 ? 'bg-emerald-500' : idx === 1 ? 'bg-indigo-500' : 'bg-purple-500'
+          }));
+        }
 
-    const actualSpend = {
-      needs: 320000,
-      wants: 180000,
-      savings: 150000
-    };
-
-    const totalExpenses = actualSpend.needs + actualSpend.wants;
-    const netSavings = totalIncome - totalExpenses;
-
-    const goals = [
-      { id: 'g1', title: 'Emergency Fund (6 Months)', targetAmount: 2000000, currentAmount: 1200000, category: 'Emergency' },
-      { id: 'g2', title: 'Dream Vacation Trip', targetAmount: 600000, currentAmount: 350000, category: 'Vacation' },
-      { id: 'g3', title: 'House Downpayment Fund', targetAmount: 5000000, currentAmount: 2500000, category: 'Milestone' }
-    ];
+      } catch (dbErr) {
+        console.error('Database query fallback to default state:', dbErr.message);
+      }
+    }
 
     res.json({
       success: true,
-      currency: 'Rs.',
       data: {
-        household: { id: household_id, name: "Dulanja & Diyana's Future Fund" },
-        income: {
-          partnerA,
-          partnerB,
-          combinedTotal: totalIncome,
-          proportionalSplit: {
-            partnerAPercent: Math.round(partnerAShareRatio * 100),
-            partnerBPercent: Math.round(partnerBShareRatio * 100)
-          }
-        },
-        budgetRule503020: {
-          benchmarks,
-          actualSpend
-        },
-        overview: {
-          totalIncome,
-          totalExpenses,
-          totalSavingsLogged: actualSpend.savings,
-          remainingUnallocated: netSavings - actualSpend.savings
-        },
+        partnerA,
+        partnerB,
+        expenses,
         goals
       }
     });
@@ -70,22 +70,33 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST /api/dashboard/salary - Update Partner Salaries
+// POST /api/dashboard/salary - Save Salaries to Supabase DB
 router.post('/salary', async (req, res) => {
   try {
     const { partnerAIncome, partnerBIncome, partnerAName, partnerBName } = req.body;
-    const combinedTotal = Number(partnerAIncome) + Number(partnerBIncome);
+    const pool = req.app.get('dbPool');
+
+    if (pool && process.env.DATABASE_URL) {
+      await pool.query(
+        'UPDATE users SET monthly_net_income = $1 WHERE LOWER(name) = LOWER($2)',
+        [partnerAIncome, partnerAName || 'Dulanja']
+      );
+      await pool.query(
+        'UPDATE users SET monthly_net_income = $1 WHERE LOWER(name) = LOWER($2)',
+        [partnerBIncome, partnerBName || 'Diyana']
+      );
+    }
 
     res.json({
       success: true,
-      message: 'Salaries updated successfully',
+      message: 'Salaries updated in DB successfully',
       data: {
-        partnerA: { name: partnerAName || 'Dulanja', netIncome: Number(partnerAIncome) },
-        partnerB: { name: partnerBName || 'Diyana', netIncome: Number(partnerBIncome) },
-        combinedTotal
+        partnerA: { name: partnerAName || 'Dulanja', income: Number(partnerAIncome) },
+        partnerB: { name: partnerBName || 'Diyana', income: Number(partnerBIncome) }
       }
     });
   } catch (err) {
+    console.error('Error saving salary to DB:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
