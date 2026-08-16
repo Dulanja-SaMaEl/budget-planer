@@ -15,10 +15,10 @@ CREATE TABLE IF NOT EXISTS users (
     household_id UUID REFERENCES households(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255) DEFAULT 'hashed_pass',
     monthly_net_income DECIMAL(12, 2) DEFAULT 0.00,
-    pay_frequency VARCHAR(20) DEFAULT 'monthly', -- 'monthly', 'biweekly', 'weekly'
-    pay_day INT, -- e.g. 1st or 15th
+    pay_frequency VARCHAR(20) DEFAULT 'monthly',
+    pay_day VARCHAR(20) DEFAULT '25th',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     household_id UUID REFERENCES households(id) ON DELETE CASCADE,
     name VARCHAR(50) NOT NULL,
-    type VARCHAR(20) NOT NULL CHECK (type IN ('need', 'want', 'savings')),
+    type VARCHAR(20) NOT NULL CHECK (type IN ('Needs', 'Wants', 'Savings')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -35,13 +35,11 @@ CREATE TABLE IF NOT EXISTS categories (
 CREATE TABLE IF NOT EXISTS transactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     household_id UUID REFERENCES households(id) ON DELETE CASCADE,
-    paid_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
+    paid_by_name VARCHAR(100) NOT NULL,
+    category VARCHAR(50) NOT NULL,
     title VARCHAR(150) NOT NULL,
     amount DECIMAL(12, 2) NOT NULL,
-    split_type VARCHAR(20) DEFAULT 'proportional', -- 'proportional', 'fifty_fifty', 'individual'
-    partner_a_share DECIMAL(12, 2),
-    partner_b_share DECIMAL(12, 2),
+    split_type VARCHAR(20) DEFAULT 'Proportional',
     transaction_date DATE DEFAULT CURRENT_DATE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -51,15 +49,31 @@ CREATE TABLE IF NOT EXISTS savings_goals (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     household_id UUID REFERENCES households(id) ON DELETE CASCADE,
     title VARCHAR(100) NOT NULL,
-    category VARCHAR(50) DEFAULT 'general', -- 'vacation', 'emergency', 'house', 'debt', 'investment'
+    category VARCHAR(50) DEFAULT 'General',
     target_amount DECIMAL(12, 2) NOT NULL,
     current_amount DECIMAL(12, 2) DEFAULT 0.00,
-    monthly_contribution DECIMAL(12, 2) DEFAULT 0.00,
-    target_date DATE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Seed Default Household Categories for 50/30/20 setup helper
--- Needs (50%): Housing, Utilities, Groceries, Insurance, Debt Min Payments
--- Wants (30%): Dining Out, Entertainment, Travel, Subscriptions
--- Savings (20%): Emergency Fund, Investments, Goal Contributions
+-- Seed Default Household for Dulanja & Diyana
+INSERT INTO households (id, name) 
+VALUES ('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'Dulanja & Diyana Household')
+ON CONFLICT (id) DO NOTHING;
+
+-- Seed Partner Profiles
+INSERT INTO users (household_id, name, email, monthly_net_income, pay_day) VALUES 
+('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'Dulanja', 'dulanja@couplesbudget.lk', 450000.00, '25th'),
+('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'Diyana', 'diyana@couplesbudget.lk', 350000.00, '28th')
+ON CONFLICT (email) DO NOTHING;
+
+-- Seed Sample Daily Expenses
+INSERT INTO transactions (household_id, paid_by_name, category, title, amount, split_type, transaction_date) VALUES
+('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'Dulanja', 'Needs', 'Keells Supermarket Groceries', 45000.00, 'Proportional', '2026-08-16'),
+('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'Diyana', 'Needs', 'Fiber Broadband & Electricity', 18000.00, 'Proportional', '2026-08-15'),
+('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'Dulanja', 'Wants', 'Weekend Dinner & Drinks', 12500.00, '50/50', '2026-08-14');
+
+-- Seed Savings Goals
+INSERT INTO savings_goals (household_id, title, category, target_amount, current_amount) VALUES
+('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'Emergency Fund (6 Months)', 'Emergency', 2000000.00, 1200000.00),
+('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'Dream Vacation Trip', 'Vacation', 600000.00, 350000.00),
+('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'House Downpayment Fund', 'Milestone', 5000000.00, 2500000.00);
