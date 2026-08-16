@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import { 
   Wallet, TrendingUp, PiggyBank, Scale, 
-  PlusCircle, Calculator, Heart, ShieldCheck, Target, ArrowUpRight, Settings, Edit2, Database, Wifi
+  PlusCircle, Calculator, Heart, ShieldCheck, Target, ArrowUpRight, Settings, Edit2, Database, Trash2, Calendar, User
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -42,9 +42,26 @@ export default function Dashboard() {
     { id: 3, title: 'House Downpayment Fund', category: 'Milestone', current: 2500000, target: 5000000, color: 'bg-purple-500' },
   ]);
 
-  // Modal / Form state for adding new goal
+  // Logged Daily Expenses History
+  const [expenses, setExpenses] = useState([
+    { id: 1, title: 'Keells Supermarket Groceries', amount: 45000, paidBy: 'Dulanja', category: 'Needs', splitType: 'Proportional', date: '2026-08-16' },
+    { id: 2, title: 'Fiber Broadband & Electricity', amount: 18000, paidBy: 'Diyana', category: 'Needs', splitType: 'Proportional', date: '2026-08-15' },
+    { id: 3, title: 'Weekend Dinner & Drinks', amount: 12500, paidBy: 'Dulanja', category: 'Wants', splitType: '50/50', date: '2026-08-14' }
+  ]);
+
+  // Modal / Form state for Add Goal & Add Expense
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [newGoal, setNewGoal] = useState({ title: '', category: 'General', target: 500000, current: 0 });
+
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [newExpense, setNewExpense] = useState({
+    title: '',
+    amount: 15000,
+    paidBy: 'Dulanja',
+    category: 'Needs',
+    splitType: 'Proportional',
+    date: new Date().toISOString().split('T')[0]
+  });
 
   // Live API Connection Verification Effect
   useEffect(() => {
@@ -129,6 +146,55 @@ export default function Dashboard() {
     setShowGoalModal(false);
   };
 
+  const handleAddExpense = (e) => {
+    e.preventDefault();
+    if (!newExpense.title || !newExpense.amount) return;
+
+    const amt = Number(newExpense.amount);
+    const item = {
+      id: Date.now(),
+      title: newExpense.title,
+      amount: amt,
+      paidBy: newExpense.paidBy,
+      category: newExpense.category,
+      splitType: newExpense.splitType,
+      date: newExpense.date || new Date().toISOString().split('T')[0]
+    };
+
+    // Add item to list
+    setExpenses([item, ...expenses]);
+
+    // Update actualSpend state automatically
+    if (newExpense.category === 'Needs') {
+      setActualSpend(prev => ({ ...prev, needs: prev.needs + amt }));
+    } else if (newExpense.category === 'Wants') {
+      setActualSpend(prev => ({ ...prev, wants: prev.wants + amt }));
+    } else if (newExpense.category === 'Savings') {
+      setActualSpend(prev => ({ ...prev, savings: prev.savings + amt }));
+    }
+
+    // Reset form
+    setNewExpense({
+      title: '',
+      amount: 15000,
+      paidBy: partnerA.name,
+      category: 'Needs',
+      splitType: 'Proportional',
+      date: new Date().toISOString().split('T')[0]
+    });
+    setShowExpenseModal(false);
+  };
+
+  const handleDeleteExpense = (id) => {
+    const item = expenses.find(e => e.id === id);
+    if (item) {
+      if (item.category === 'Needs') setActualSpend(prev => ({ ...prev, needs: Math.max(0, prev.needs - item.amount) }));
+      if (item.category === 'Wants') setActualSpend(prev => ({ ...prev, wants: Math.max(0, prev.wants - item.amount) }));
+      if (item.category === 'Savings') setActualSpend(prev => ({ ...prev, savings: Math.max(0, prev.savings - item.amount) }));
+    }
+    setExpenses(expenses.filter(e => e.id !== id));
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
       {/* Top Header */}
@@ -156,11 +222,11 @@ export default function Dashboard() {
             {partnerA.name} & {partnerB.name}'s Wealth Dashboard
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            Track combined salary streams, split shared bills fairly, and build long-term wealth together.
+            Track combined salary streams, log daily expenses, split shared bills, and build wealth together.
           </p>
         </div>
 
-        {/* Currency & Settings Controller */}
+        {/* Currency & Action Controllers */}
         <div className="flex items-center gap-3">
           <div className="flex items-center bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-300">
             <Settings className="w-3.5 h-3.5 mr-1.5 text-emerald-400" />
@@ -172,6 +238,13 @@ export default function Dashboard() {
               className="w-14 bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-emerald-400 font-bold text-xs focus:outline-none focus:border-emerald-500"
             />
           </div>
+
+          <button 
+            onClick={() => setShowExpenseModal(true)}
+            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-100 px-4 py-2 rounded-xl text-sm font-medium border border-slate-700 transition"
+          >
+            <PlusCircle className="w-4 h-4 text-emerald-400" /> Add Expense
+          </button>
 
           <button 
             onClick={() => setShowGoalModal(true)}
@@ -319,6 +392,76 @@ export default function Dashboard() {
                   Contributes <strong className="text-indigo-400">{partnerBSharePercent}%</strong> to household income pool
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Daily Logged Expenses Feed Card */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <PlusCircle className="w-5 h-5 text-emerald-400" /> Recent Logged Expenses
+                </h2>
+                <p className="text-slate-400 text-xs mt-0.5">Daily expense entries with partner split calculations.</p>
+              </div>
+
+              <button 
+                onClick={() => setShowExpenseModal(true)}
+                className="flex items-center gap-1.5 bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 px-3 py-1.5 rounded-xl text-xs font-semibold transition"
+              >
+                + Log Daily Expense
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider">
+                    <th className="pb-3 px-2">Date</th>
+                    <th className="pb-3 px-2">Description</th>
+                    <th className="pb-3 px-2">Category</th>
+                    <th className="pb-3 px-2">Paid By</th>
+                    <th className="pb-3 px-2">Amount</th>
+                    <th className="pb-3 px-2 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {expenses.map((exp) => (
+                    <tr key={exp.id} className="hover:bg-slate-950/40 transition">
+                      <td className="py-3 px-2 text-slate-400 whitespace-nowrap">{exp.date}</td>
+                      <td className="py-3 px-2 font-semibold text-white">{exp.title}</td>
+                      <td className="py-3 px-2">
+                        <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${
+                          exp.category === 'Needs' ? 'bg-blue-500/10 text-blue-400' :
+                          exp.category === 'Wants' ? 'bg-pink-500/10 text-pink-400' :
+                          'bg-emerald-500/10 text-emerald-400'
+                        }`}>
+                          {exp.category}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2">
+                        <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                          exp.paidBy === partnerA.name ? 'bg-emerald-500/10 text-emerald-400' : 'bg-indigo-500/10 text-indigo-400'
+                        }`}>
+                          {exp.paidBy}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2 font-bold text-white whitespace-nowrap">
+                        {currency} {Number(exp.amount).toLocaleString()}
+                      </td>
+                      <td className="py-3 px-2 text-right">
+                        <button 
+                          onClick={() => handleDeleteExpense(exp.id)}
+                          className="text-slate-500 hover:text-rose-400 transition"
+                          title="Delete Expense"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -587,6 +730,94 @@ export default function Dashboard() {
         </div>
 
       </div>
+
+      {/* Add New Daily Expense Modal */}
+      {showExpenseModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <h3 className="text-xl font-bold text-white mb-1">Log Daily Expense</h3>
+            <p className="text-xs text-slate-400 mb-4">Log spending by {partnerA.name} or {partnerB.name} to update total balances.</p>
+            
+            <form onSubmit={handleAddExpense} className="space-y-4">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Expense Description</label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. Groceries at Keells, Electricity Bill..." 
+                  value={newExpense.title}
+                  onChange={(e) => setNewExpense({ ...newExpense, title: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Amount ({currency})</label>
+                  <input 
+                    type="number" 
+                    value={newExpense.amount}
+                    onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-bold text-sm focus:outline-none focus:border-emerald-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Paid By</label>
+                  <select
+                    value={newExpense.paidBy}
+                    onChange={(e) => setNewExpense({ ...newExpense, paidBy: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value={partnerA.name}>{partnerA.name}</option>
+                    <option value={partnerB.name}>{partnerB.name}</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Rule Category</label>
+                  <select
+                    value={newExpense.category}
+                    onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="Needs">Needs (50%)</option>
+                    <option value="Wants">Wants (30%)</option>
+                    <option value="Savings">Savings (20%)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Date</label>
+                  <input 
+                    type="date" 
+                    value={newExpense.date}
+                    onChange={(e) => setNewExpense({ ...newExpense, date: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button 
+                  type="button" 
+                  onClick={() => setShowExpenseModal(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 text-xs rounded-xl font-medium"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs rounded-xl font-medium shadow-md shadow-emerald-900/40"
+                >
+                  Log Expense
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Add New Goal Modal */}
       {showGoalModal && (

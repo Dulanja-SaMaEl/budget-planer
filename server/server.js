@@ -23,7 +23,10 @@ app.use(express.json());
 
 // Routes
 const dashboardRoutes = require('./routes/dashboard');
+const expenseRoutes = require('./routes/expenses');
+
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/expenses', expenseRoutes);
 
 // Health & Database Connection Check Endpoint
 app.get('/api/health', async (req, res) => {
