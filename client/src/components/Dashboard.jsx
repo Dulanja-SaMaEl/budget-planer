@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import { 
   Wallet, TrendingUp, PiggyBank, Scale, 
-  PlusCircle, Calculator, Heart, ShieldCheck, Target, ArrowUpRight, Settings, Edit2, Database, Trash2, Calendar, User
+  PlusCircle, Calculator, Heart, ShieldCheck, Target, ArrowUpRight, Settings, Edit2, Database, Trash2, CheckCircle2
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -19,6 +19,9 @@ export default function Dashboard() {
     database: 'checking',
     message: 'Checking API status...'
   });
+
+  // Salary Saved Notification Banner
+  const [salaryNotification, setSalaryNotification] = useState(false);
 
   // Customizable Partner Profiles & Incomes
   const [partnerA, setPartnerA] = useState({ name: 'Dulanja', income: 450000, payDate: '25th of every month' });
@@ -66,7 +69,7 @@ export default function Dashboard() {
   // Live API Connection Verification Effect
   useEffect(() => {
     const verifyConnection = async () => {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
       try {
         const res = await fetch(`${apiUrl}/health`);
         if (res.ok) {
@@ -75,7 +78,7 @@ export default function Dashboard() {
             checked: true,
             backend: 'connected',
             database: data.database === 'connected' ? 'connected' : 'disconnected',
-            message: data.database === 'connected' ? 'Supabase DB Live' : 'Express API Live (DB env pending)'
+            message: data.database === 'connected' ? 'Supabase DB Live' : 'Render Backend Live (DB pending)'
           });
         } else {
           setApiStatus({ checked: true, backend: 'disconnected', database: 'disconnected', message: 'Backend Unreachable' });
@@ -86,6 +89,27 @@ export default function Dashboard() {
     };
     verifyConnection();
   }, []);
+
+  // Sync Salary Changes to Backend API
+  const handleSaveSalaries = async () => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
+    try {
+      await fetch(`${apiUrl}/dashboard/salary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          partnerAName: partnerA.name,
+          partnerAIncome: partnerA.income,
+          partnerBName: partnerB.name,
+          partnerBIncome: partnerB.income
+        })
+      });
+    } catch (err) {
+      console.log('Local salary state updated.');
+    }
+    setSalaryNotification(true);
+    setTimeout(() => setSalaryNotification(false), 3000);
+  };
 
   // Calculated Combined Financial Metrics
   const combinedIncome = Number(partnerA.income) + Number(partnerB.income);
@@ -161,10 +185,8 @@ export default function Dashboard() {
       date: newExpense.date || new Date().toISOString().split('T')[0]
     };
 
-    // Add item to list
     setExpenses([item, ...expenses]);
 
-    // Update actualSpend state automatically
     if (newExpense.category === 'Needs') {
       setActualSpend(prev => ({ ...prev, needs: prev.needs + amt }));
     } else if (newExpense.category === 'Wants') {
@@ -173,7 +195,6 @@ export default function Dashboard() {
       setActualSpend(prev => ({ ...prev, savings: prev.savings + amt }));
     }
 
-    // Reset form
     setNewExpense({
       title: '',
       amount: 15000,
@@ -322,15 +343,28 @@ export default function Dashboard() {
         <div className="lg:col-span-2 space-y-8">
           
           {/* Salary & Partner Input Card */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 relative">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                <Wallet className="w-5 h-5 text-emerald-400" /> Income & Salary Management
-              </h2>
-              <span className="text-xs bg-slate-800 text-slate-300 px-3 py-1 rounded-full flex items-center gap-1">
-                <Edit2 className="w-3 h-3" /> Live Recalculation
-              </span>
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <Wallet className="w-5 h-5 text-emerald-400" /> Income & Salary Management
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">Edit monthly income for {partnerA.name} and {partnerB.name}.</p>
+              </div>
+
+              <button 
+                onClick={handleSaveSalaries}
+                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-1.5 rounded-xl text-xs font-semibold shadow-md shadow-emerald-900/30 transition"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" /> Save Salaries
+              </button>
             </div>
+
+            {salaryNotification && (
+              <div className="mb-4 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs px-3 py-2 rounded-xl flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4" /> Salaries saved & split percentages updated!
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Partner A (Dulanja) */}

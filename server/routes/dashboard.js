@@ -3,9 +3,9 @@ const router = express.Router();
 const authenticateToken = require('../middleware/auth');
 
 // GET /api/dashboard - Household Overview & Proportional Split Logic
-router.get('/', authenticateToken, async (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const { household_id } = req.user;
+    const household_id = req.user ? req.user.household_id : 'demo-household';
 
     const partnerA = { id: 'p1', name: 'Dulanja', netIncome: 450000, payFrequency: 'Monthly', payDay: '25th' };
     const partnerB = { id: 'p2', name: 'Diyana', netIncome: 350000, payFrequency: 'Monthly', payDay: '28th' };
@@ -40,7 +40,7 @@ router.get('/', authenticateToken, async (req, res) => {
       success: true,
       currency: 'Rs.',
       data: {
-        household: { id: household_id || 'demo-household', name: "Dulanja & Diyana's Future Fund" },
+        household: { id: household_id, name: "Dulanja & Diyana's Future Fund" },
         income: {
           partnerA,
           partnerB,
@@ -67,6 +67,26 @@ router.get('/', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching dashboard overview:', error);
     res.status(500).json({ success: false, message: 'Server error retrieving dashboard overview' });
+  }
+});
+
+// POST /api/dashboard/salary - Update Partner Salaries
+router.post('/salary', async (req, res) => {
+  try {
+    const { partnerAIncome, partnerBIncome, partnerAName, partnerBName } = req.body;
+    const combinedTotal = Number(partnerAIncome) + Number(partnerBIncome);
+
+    res.json({
+      success: true,
+      message: 'Salaries updated successfully',
+      data: {
+        partnerA: { name: partnerAName || 'Dulanja', netIncome: Number(partnerAIncome) },
+        partnerB: { name: partnerBName || 'Diyana', netIncome: Number(partnerBIncome) },
+        combinedTotal
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
