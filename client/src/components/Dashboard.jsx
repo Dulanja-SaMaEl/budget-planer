@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import { 
   Wallet, TrendingUp, PiggyBank, Scale, 
-  PlusCircle, Calculator, Heart, ShieldCheck, Target, ArrowUpRight, Settings, Database, Trash2, CheckCircle2, Loader2, Eye, X
+  PlusCircle, Calculator, Heart, ShieldCheck, Target, ArrowUpRight, Settings, Database, Trash2, CheckCircle2, Loader2, Eye, X, ArrowUpCircle
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -50,6 +50,10 @@ export default function Dashboard() {
   // Modals
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [newGoal, setNewGoal] = useState({ title: '', category: 'General', target: 500000, current: 0 });
+
+  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [selectedDepositGoal, setSelectedDepositGoal] = useState(null);
+  const [depositAmount, setDepositAmount] = useState(50000);
 
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [newExpense, setNewExpense] = useState({
@@ -218,7 +222,7 @@ export default function Dashboard() {
 
   const projectionData = generateProjectionData();
 
-  // Handle Savings Goal Add / Update / Delete
+  // Handle Savings Goal Add / Update / Deposit / Delete
   const handleAddGoal = async (e) => {
     e.preventDefault();
     if (!newGoal.title) return;
@@ -254,20 +258,28 @@ export default function Dashboard() {
     showToast('Savings goal saved to Supabase!');
   };
 
-  const handleUpdateGoalCurrent = async (id, currentVal) => {
-    const val = Number(currentVal);
-    setGoals(prev => prev.map(g => String(g.id) === String(id) ? { ...g, current: val } : g));
+  const handleUpdateGoal = async (id, fields) => {
+    setGoals(prev => prev.map(g => String(g.id) === String(id) ? { ...g, ...fields } : g));
 
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
     try {
       await fetch(`${apiUrl}/dashboard/goals/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ current: val })
+        body: JSON.stringify(fields)
       });
     } catch (err) {
       console.log('Goal updated locally.');
     }
+  };
+
+  const handleDepositToGoal = (e) => {
+    e.preventDefault();
+    if (!selectedDepositGoal || !depositAmount) return;
+    const newCurrent = Number(selectedDepositGoal.current) + Number(depositAmount);
+    handleUpdateGoal(selectedDepositGoal.id, { current: newCurrent });
+    setShowDepositModal(false);
+    showToast(`Added ${currency} ${Number(depositAmount).toLocaleString()} to ${selectedDepositGoal.title}!`);
   };
 
   const handleDeleteGoal = async (id) => {
@@ -805,10 +817,7 @@ export default function Dashboard() {
                 <input 
                   type="number" 
                   value={startingSavings} 
-                  onChange={(e) => {
-                    const val = Number(e.target.value);
-                    setStartingSavings(val);
-                  }}
+                  onChange={(e) => setStartingSavings(Number(e.target.value))}
                   onBlur={() => handleSaveSettings({ startingSavings })}
                   className="w-full bg-slate-900 text-emerald-400 font-bold px-2.5 py-1.5 rounded-lg text-xs border border-slate-700"
                 />
@@ -818,10 +827,7 @@ export default function Dashboard() {
                 <input 
                   type="number" 
                   value={monthlyContribution} 
-                  onChange={(e) => {
-                    const val = Number(e.target.value);
-                    setMonthlyContribution(val);
-                  }}
+                  onChange={(e) => setMonthlyContribution(Number(e.target.value))}
                   onBlur={() => handleSaveSettings({ monthlyContribution })}
                   className="w-full bg-slate-900 text-emerald-400 font-bold px-2.5 py-1.5 rounded-lg text-xs border border-slate-700"
                 />
@@ -831,10 +837,7 @@ export default function Dashboard() {
                 <input 
                   type="number" 
                   value={annualReturn} 
-                  onChange={(e) => {
-                    const val = Number(e.target.value);
-                    setAnnualReturn(val);
-                  }}
+                  onChange={(e) => setAnnualReturn(Number(e.target.value))}
                   onBlur={() => handleSaveSettings({ annualReturn })}
                   className="w-full bg-slate-900 text-white font-bold px-2.5 py-1.5 rounded-lg text-xs border border-slate-700"
                 />
@@ -888,10 +891,7 @@ export default function Dashboard() {
               <input 
                 type="number"
                 value={sampleBill}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  setSampleBill(val);
-                }}
+                onChange={(e) => setSampleBill(Number(e.target.value))}
                 onBlur={() => handleSaveSettings({ sampleBill })}
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white font-bold text-lg focus:outline-none focus:border-indigo-500"
               />
@@ -952,6 +952,16 @@ export default function Dashboard() {
                           <span className="text-xs text-slate-400">{goal.category}</span>
                         </div>
                         <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => {
+                              setSelectedDepositGoal(goal);
+                              setShowDepositModal(true);
+                            }}
+                            className="flex items-center gap-1 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/30 px-2 py-0.5 rounded text-[11px] font-semibold transition"
+                            title="Add Deposit / Extra Savings"
+                          >
+                            <ArrowUpCircle className="w-3 h-3" /> + Deposit
+                          </button>
                           <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
                             {percent}%
                           </span>
@@ -969,17 +979,27 @@ export default function Dashboard() {
                         <div className={`${goal.color || 'bg-emerald-500'} h-2 rounded-full`} style={{ width: `${percent}%` }}></div>
                       </div>
 
-                      <div className="flex justify-between items-center text-xs text-slate-400 pt-1">
+                      <div className="grid grid-cols-2 gap-2 text-xs text-slate-400 pt-1">
                         <div className="flex items-center gap-1">
-                          <span>Saved:</span>
+                          <span className="text-slate-500 font-medium">Saved:</span>
                           <input 
                             type="number"
                             value={goal.current}
-                            onChange={(e) => handleUpdateGoalCurrent(goal.id, e.target.value)}
-                            className="w-24 bg-slate-900 border border-slate-700 text-white rounded px-1.5 py-0.5 text-xs font-bold"
+                            onChange={(e) => setGoals(goals.map(g => g.id === goal.id ? { ...g, current: Number(e.target.value) } : g))}
+                            onBlur={(e) => handleUpdateGoal(goal.id, { current: Number(e.target.value) })}
+                            className="w-full bg-slate-900 border border-slate-700 text-emerald-400 font-bold rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-emerald-500"
                           />
                         </div>
-                        <span>Target: {currency} {goal.target.toLocaleString()}</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-slate-500 font-medium">Target:</span>
+                          <input 
+                            type="number"
+                            value={goal.target}
+                            onChange={(e) => setGoals(goals.map(g => g.id === goal.id ? { ...g, target: Number(e.target.value) } : g))}
+                            onBlur={(e) => handleUpdateGoal(goal.id, { target: Number(e.target.value) })}
+                            className="w-full bg-slate-900 border border-slate-700 text-white font-bold rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-indigo-500"
+                          />
+                        </div>
                       </div>
                     </div>
                   );
@@ -991,6 +1011,56 @@ export default function Dashboard() {
         </div>
 
       </div>
+
+      {/* Quick Deposit Modal */}
+      {showDepositModal && selectedDepositGoal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <h3 className="text-xl font-bold text-white mb-1">Deposit Savings</h3>
+            <p className="text-xs text-slate-400 mb-4">Add savings towards <strong className="text-emerald-400">{selectedDepositGoal.title}</strong>.</p>
+            
+            <form onSubmit={handleDepositToGoal} className="space-y-4">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Deposit Amount ({currency})</label>
+                <input 
+                  type="number" 
+                  value={depositAmount}
+                  onChange={(e) => setDepositAmount(Number(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-emerald-400 font-bold text-lg focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
+
+              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs space-y-1">
+                <div className="flex justify-between text-slate-400">
+                  <span>Current Saved:</span>
+                  <span>{currency} {Number(selectedDepositGoal.current).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-emerald-400 font-bold">
+                  <span>New Balance After Deposit:</span>
+                  <span>{currency} {(Number(selectedDepositGoal.current) + Number(depositAmount)).toLocaleString()}</span>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button 
+                  type="button" 
+                  onClick={() => setShowDepositModal(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 text-xs rounded-xl font-medium"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs rounded-xl font-medium shadow-md shadow-emerald-900/40"
+                >
+                  Confirm Deposit
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* View Expense Detail Modal */}
       {selectedExpense && (
