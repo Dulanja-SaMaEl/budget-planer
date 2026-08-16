@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import { 
   Wallet, TrendingUp, PiggyBank, Scale, 
-  PlusCircle, Calculator, Heart, ShieldCheck, Target, ArrowUpRight, Settings, Edit2, Database, Trash2, CheckCircle2, Loader2, Eye, X
+  PlusCircle, Calculator, Heart, ShieldCheck, Target, ArrowUpRight, Settings, Database, Trash2, CheckCircle2, Loader2, Eye, X
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -23,7 +23,7 @@ export default function Dashboard() {
     message: 'Checking API status...'
   });
 
-  // Notifications
+  // Toast Notifications
   const [notification, setNotification] = useState('');
 
   // Customizable Partner Profiles & Incomes
@@ -42,18 +42,10 @@ export default function Dashboard() {
   const [startingSavings, setStartingSavings] = useState(1000000);
 
   // Editable Savings Goals List
-  const [goals, setGoals] = useState([
-    { id: 1, title: 'Emergency Fund (6 Months)', category: 'Emergency', current: 1200000, target: 2000000, color: 'bg-emerald-500' },
-    { id: 2, title: 'Dream Vacation Trip', category: 'Vacation', current: 350000, target: 600000, color: 'bg-indigo-500' },
-    { id: 3, title: 'House Downpayment Fund', category: 'Milestone', current: 2500000, target: 5000000, color: 'bg-purple-500' },
-  ]);
+  const [goals, setGoals] = useState([]);
 
   // Logged Daily Expenses History
-  const [expenses, setExpenses] = useState([
-    { id: '1', title: 'Keells Supermarket Groceries', amount: 45000, paidBy: 'Dulanja', category: 'Needs', splitType: 'Proportional', date: '2026-08-16' },
-    { id: '2', title: 'Fiber Broadband & Electricity', amount: 18000, paidBy: 'Diyana', category: 'Needs', splitType: 'Proportional', date: '2026-08-15' },
-    { id: '3', title: 'Weekend Dinner & Drinks', amount: 12500, paidBy: 'Dulanja', category: 'Wants', splitType: '50/50', date: '2026-08-14' }
-  ]);
+  const [expenses, setExpenses] = useState([]);
 
   // Modals
   const [showGoalModal, setShowGoalModal] = useState(false);
@@ -103,15 +95,15 @@ export default function Dashboard() {
                 if (dashData.data.partnerA) setPartnerA(dashData.data.partnerA);
                 if (dashData.data.partnerB) setPartnerB(dashData.data.partnerB);
                 if (dashData.data.expenses) setExpenses(dashData.data.expenses);
-                if (dashData.data.goals && dashData.data.goals.length > 0) setGoals(dashData.data.goals);
+                if (dashData.data.goals) setGoals(dashData.data.goals);
                 
                 if (dashData.data.settings) {
                   const s = dashData.data.settings;
                   if (s.currency) setCurrency(s.currency);
-                  if (s.sampleBill) setSampleBill(s.sampleBill);
-                  if (s.startingSavings) setStartingSavings(s.startingSavings);
-                  if (s.monthlyContribution) setMonthlyContribution(s.monthlyContribution);
-                  if (s.annualReturn) setAnnualReturn(s.annualReturn);
+                  if (s.sampleBill !== undefined && s.sampleBill !== null) setSampleBill(s.sampleBill);
+                  if (s.startingSavings !== undefined && s.startingSavings !== null) setStartingSavings(s.startingSavings);
+                  if (s.monthlyContribution !== undefined && s.monthlyContribution !== null) setMonthlyContribution(s.monthlyContribution);
+                  if (s.annualReturn !== undefined && s.annualReturn !== null) setAnnualReturn(s.annualReturn);
                   if (s.actualSpend) setActualSpend(s.actualSpend);
                 }
               }
@@ -226,23 +218,68 @@ export default function Dashboard() {
 
   const projectionData = generateProjectionData();
 
-  const handleAddGoal = (e) => {
+  // Handle Savings Goal Add / Update / Delete
+  const handleAddGoal = async (e) => {
     e.preventDefault();
     if (!newGoal.title) return;
-    setGoals([
-      ...goals,
-      {
-        id: Date.now(),
-        title: newGoal.title,
-        category: newGoal.category,
-        current: Number(newGoal.current),
-        target: Number(newGoal.target),
-        color: 'bg-emerald-500'
-      }
-    ]);
+    const tempGoal = {
+      id: Date.now().toString(),
+      title: newGoal.title,
+      category: newGoal.category,
+      current: Number(newGoal.current),
+      target: Number(newGoal.target),
+      color: 'bg-emerald-500'
+    };
+    setGoals(prev => [...prev, tempGoal]);
     setNewGoal({ title: '', category: 'General', target: 500000, current: 0 });
     setShowGoalModal(false);
-    showToast('Goal added successfully!');
+
+    // Save to Supabase Backend
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
+    try {
+      const res = await fetch(`${apiUrl}/dashboard/goals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(tempGoal)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.goal) {
+          setGoals(prev => prev.map(g => g.id === tempGoal.id ? data.goal : g));
+        }
+      }
+    } catch (err) {
+      console.log('Goal saved locally.');
+    }
+    showToast('Savings goal saved to Supabase!');
+  };
+
+  const handleUpdateGoalCurrent = async (id, currentVal) => {
+    const val = Number(currentVal);
+    setGoals(prev => prev.map(g => String(g.id) === String(id) ? { ...g, current: val } : g));
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
+    try {
+      await fetch(`${apiUrl}/dashboard/goals/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current: val })
+      });
+    } catch (err) {
+      console.log('Goal updated locally.');
+    }
+  };
+
+  const handleDeleteGoal = async (id) => {
+    setGoals(prev => prev.filter(g => String(g.id) !== String(id)));
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
+    try {
+      await fetch(`${apiUrl}/dashboard/goals/${id}`, { method: 'DELETE' });
+    } catch (err) {
+      console.log('Goal deleted locally.');
+    }
+    showToast('Savings goal deleted!');
   };
 
   const handleAddExpense = async (e) => {
@@ -260,7 +297,7 @@ export default function Dashboard() {
       date: newExpense.date || new Date().toISOString().split('T')[0]
     };
 
-    setExpenses([item, ...expenses]);
+    setExpenses(prev => [item, ...prev]);
 
     let updatedSpend = { ...actualSpend };
     if (newExpense.category === 'Needs') updatedSpend.needs += amt;
@@ -585,47 +622,53 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
-                  {expenses.map((exp) => (
-                    <tr key={exp.id} className="hover:bg-slate-950/40 transition">
-                      <td className="py-3 px-2 text-slate-400 whitespace-nowrap">{exp.date}</td>
-                      <td className="py-3 px-2 font-semibold text-white">{exp.title}</td>
-                      <td className="py-3 px-2">
-                        <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${
-                          exp.category === 'Needs' ? 'bg-blue-500/10 text-blue-400' :
-                          exp.category === 'Wants' ? 'bg-pink-500/10 text-pink-400' :
-                          'bg-emerald-500/10 text-emerald-400'
-                        }`}>
-                          {exp.category}
-                        </span>
-                      </td>
-                      <td className="py-3 px-2">
-                        <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
-                          exp.paidBy === partnerA.name ? 'bg-emerald-500/10 text-emerald-400' : 'bg-indigo-500/10 text-indigo-400'
-                        }`}>
-                          {exp.paidBy}
-                        </span>
-                      </td>
-                      <td className="py-3 px-2 font-bold text-white whitespace-nowrap">
-                        {currency} {Number(exp.amount).toLocaleString()}
-                      </td>
-                      <td className="py-3 px-2 text-right flex items-center justify-end gap-2">
-                        <button 
-                          onClick={() => setSelectedExpense(exp)}
-                          className="text-slate-400 hover:text-emerald-400 transition"
-                          title="View Details"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteExpense(exp.id)}
-                          className="text-slate-500 hover:text-rose-400 transition"
-                          title="Delete Expense"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
+                  {expenses.length === 0 ? (
+                    <tr>
+                      <td colSpan="6" className="py-6 text-center text-slate-500 italic">No logged expenses found. Click "+ Log Daily Expense" to add one!</td>
                     </tr>
-                  ))}
+                  ) : (
+                    expenses.map((exp) => (
+                      <tr key={exp.id} className="hover:bg-slate-950/40 transition">
+                        <td className="py-3 px-2 text-slate-400 whitespace-nowrap">{exp.date}</td>
+                        <td className="py-3 px-2 font-semibold text-white">{exp.title}</td>
+                        <td className="py-3 px-2">
+                          <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${
+                            exp.category === 'Needs' ? 'bg-blue-500/10 text-blue-400' :
+                            exp.category === 'Wants' ? 'bg-pink-500/10 text-pink-400' :
+                            'bg-emerald-500/10 text-emerald-400'
+                          }`}>
+                            {exp.category}
+                          </span>
+                        </td>
+                        <td className="py-3 px-2">
+                          <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                            exp.paidBy === partnerA.name ? 'bg-emerald-500/10 text-emerald-400' : 'bg-indigo-500/10 text-indigo-400'
+                          }`}>
+                            {exp.paidBy}
+                          </span>
+                        </td>
+                        <td className="py-3 px-2 font-bold text-white whitespace-nowrap">
+                          {currency} {Number(exp.amount).toLocaleString()}
+                        </td>
+                        <td className="py-3 px-2 text-right flex items-center justify-end gap-2">
+                          <button 
+                            onClick={() => setSelectedExpense(exp)}
+                            className="text-slate-400 hover:text-emerald-400 transition"
+                            title="View Details"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteExpense(exp.id)}
+                            className="text-slate-500 hover:text-rose-400 transition"
+                            title="Delete Expense"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -762,7 +805,11 @@ export default function Dashboard() {
                 <input 
                   type="number" 
                   value={startingSavings} 
-                  onChange={(e) => setStartingSavings(Number(e.target.value))}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    setStartingSavings(val);
+                  }}
+                  onBlur={() => handleSaveSettings({ startingSavings })}
                   className="w-full bg-slate-900 text-emerald-400 font-bold px-2.5 py-1.5 rounded-lg text-xs border border-slate-700"
                 />
               </div>
@@ -771,7 +818,11 @@ export default function Dashboard() {
                 <input 
                   type="number" 
                   value={monthlyContribution} 
-                  onChange={(e) => setMonthlyContribution(Number(e.target.value))}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    setMonthlyContribution(val);
+                  }}
+                  onBlur={() => handleSaveSettings({ monthlyContribution })}
                   className="w-full bg-slate-900 text-emerald-400 font-bold px-2.5 py-1.5 rounded-lg text-xs border border-slate-700"
                 />
               </div>
@@ -780,7 +831,11 @@ export default function Dashboard() {
                 <input 
                   type="number" 
                   value={annualReturn} 
-                  onChange={(e) => setAnnualReturn(Number(e.target.value))}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    setAnnualReturn(val);
+                  }}
+                  onBlur={() => handleSaveSettings({ annualReturn })}
                   className="w-full bg-slate-900 text-white font-bold px-2.5 py-1.5 rounded-lg text-xs border border-slate-700"
                 />
               </div>
@@ -833,7 +888,11 @@ export default function Dashboard() {
               <input 
                 type="number"
                 value={sampleBill}
-                onChange={(e) => setSampleBill(Number(e.target.value))}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setSampleBill(val);
+                }}
+                onBlur={() => handleSaveSettings({ sampleBill })}
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white font-bold text-lg focus:outline-none focus:border-indigo-500"
               />
             </div>
@@ -880,42 +939,52 @@ export default function Dashboard() {
             </div>
 
             <div className="space-y-4">
-              {goals.map((goal) => {
-                const percent = Math.min(Math.round((goal.current / goal.target) * 100), 100);
-                return (
-                  <div key={goal.id} className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="font-semibold text-white text-sm">{goal.title}</h4>
-                        <span className="text-xs text-slate-400">{goal.category}</span>
+              {goals.length === 0 ? (
+                <div className="text-center text-slate-500 text-xs py-4 italic">No savings goals created yet. Click "+ Add Goal" to add your first milestone!</div>
+              ) : (
+                goals.map((goal) => {
+                  const percent = Math.min(Math.round((goal.current / goal.target) * 100), 100);
+                  return (
+                    <div key={goal.id} className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2 relative group">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-semibold text-white text-sm">{goal.title}</h4>
+                          <span className="text-xs text-slate-400">{goal.category}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
+                            {percent}%
+                          </span>
+                          <button 
+                            onClick={() => handleDeleteGoal(goal.id)}
+                            className="text-slate-500 hover:text-rose-400 transition"
+                            title="Delete Goal"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
-                      <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
-                        {percent}%
-                      </span>
-                    </div>
 
-                    <div className="w-full bg-slate-800 rounded-full h-2 my-2">
-                      <div className={`${goal.color} h-2 rounded-full`} style={{ width: `${percent}%` }}></div>
-                    </div>
-
-                    <div className="flex justify-between items-center text-xs text-slate-400 pt-1">
-                      <div className="flex items-center gap-1">
-                        <span>Saved:</span>
-                        <input 
-                          type="number"
-                          value={goal.current}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setGoals(goals.map(g => g.id === goal.id ? { ...g, current: val } : g));
-                          }}
-                          className="w-24 bg-slate-900 border border-slate-700 text-white rounded px-1.5 py-0.5 text-xs font-bold"
-                        />
+                      <div className="w-full bg-slate-800 rounded-full h-2 my-2">
+                        <div className={`${goal.color || 'bg-emerald-500'} h-2 rounded-full`} style={{ width: `${percent}%` }}></div>
                       </div>
-                      <span>Target: {currency} {goal.target.toLocaleString()}</span>
+
+                      <div className="flex justify-between items-center text-xs text-slate-400 pt-1">
+                        <div className="flex items-center gap-1">
+                          <span>Saved:</span>
+                          <input 
+                            type="number"
+                            value={goal.current}
+                            onChange={(e) => handleUpdateGoalCurrent(goal.id, e.target.value)}
+                            className="w-24 bg-slate-900 border border-slate-700 text-white rounded px-1.5 py-0.5 text-xs font-bold"
+                          />
+                        </div>
+                        <span>Target: {currency} {goal.target.toLocaleString()}</span>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
 

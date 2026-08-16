@@ -32,10 +32,10 @@ router.get('/', async (req, res) => {
           const s = settingsRes.rows[0];
           settings = {
             currency: s.currency || 'Rs.',
-            sampleBill: Number(s.sample_bill_amount),
-            startingSavings: Number(s.starting_savings),
-            monthlyContribution: Number(s.monthly_contribution),
-            annualReturn: Number(s.annual_return),
+            sampleBill: s.sample_bill_amount !== null ? Number(s.sample_bill_amount) : 100000,
+            startingSavings: s.starting_savings !== null ? Number(s.starting_savings) : 1000000,
+            monthlyContribution: s.monthly_contribution !== null ? Number(s.monthly_contribution) : 150000,
+            annualReturn: s.annual_return !== null ? Number(s.annual_return) : 10,
             actualSpend: {
               needs: Number(s.needs_actual),
               wants: Number(s.wants_actual),
@@ -62,23 +62,19 @@ router.get('/', async (req, res) => {
           'SELECT id, title, amount, paid_by_name as "paidBy", category, split_type as "splitType", to_char(transaction_date, \'YYYY-MM-DD\') as date FROM transactions WHERE household_id = $1 ORDER BY created_at DESC LIMIT 50',
           [DEMO_HOUSEHOLD_ID]
         );
-        if (transRes.rows.length > 0) {
-          expenses = transRes.rows.map(row => ({ ...row, amount: Number(row.amount) }));
-        }
+        expenses = transRes.rows.map(row => ({ ...row, amount: Number(row.amount) }));
 
         // Fetch goals
         const goalsRes = await pool.query(
           'SELECT id, title, category, target_amount as target, current_amount as current FROM savings_goals WHERE household_id = $1 ORDER BY created_at ASC',
           [DEMO_HOUSEHOLD_ID]
         );
-        if (goalsRes.rows.length > 0) {
-          goals = goalsRes.rows.map((row, idx) => ({
-            ...row,
-            target: Number(row.target),
-            current: Number(row.current),
-            color: idx === 0 ? 'bg-emerald-500' : idx === 1 ? 'bg-indigo-500' : 'bg-purple-500'
-          }));
-        }
+        goals = goalsRes.rows.map((row, idx) => ({
+          ...row,
+          target: Number(row.target),
+          current: Number(row.current),
+          color: idx % 3 === 0 ? 'bg-emerald-500' : idx % 3 === 1 ? 'bg-indigo-500' : 'bg-purple-500'
+        }));
 
       } catch (dbErr) {
         console.error('Database query fallback:', dbErr.message);
@@ -152,10 +148,10 @@ router.post('/settings', async (req, res) => {
       await pool.query(upsertQuery, [
         DEMO_HOUSEHOLD_ID,
         currency || 'Rs.',
-        sampleBill || 100000,
-        startingSavings || 1000000,
-        monthlyContribution || 150000,
-        annualReturn || 10,
+        sampleBill !== undefined && sampleBill !== null ? sampleBill : 100000,
+        startingSavings !== undefined && startingSavings !== null ? startingSavings : 1000000,
+        monthlyContribution !== undefined && monthlyContribution !== null ? monthlyContribution : 150000,
+        annualReturn !== undefined && annualReturn !== null ? annualReturn : 10,
         actualSpend ? actualSpend.needs : 320000,
         actualSpend ? actualSpend.wants : 180000,
         actualSpend ? actualSpend.savings : 150000
@@ -165,6 +161,82 @@ router.post('/settings', async (req, res) => {
     res.json({ success: true, message: 'Settings saved to DB' });
   } catch (err) {
     console.error('Error saving settings to DB:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/dashboard/goals - Add New Savings Goal to Supabase DB
+router.post('/goals', async (req, res) => {
+  try {
+    const { title, category, target, current } = req.body;
+    const pool = req.app.get('dbPool');
+    let insertedGoal = {
+      id: Date.now().toString(),
+      title,
+      category: category || 'General',
+      target: Number(target),
+      current: Number(current || 0),
+      color: 'bg-emerald-500'
+    };
+
+    if (pool && process.env.DATABASE_URL) {
+      const result = await pool.query(
+        'INSERT INTO savings_goals (household_id, title, category, target_amount, current_amount) VALUES ($1, $2, $3, $4, $5) RETURNING id, title, category, target_amount as target, current_amount as current',
+        [DEMO_HOUSEHOLD_ID, title, category || 'General', target, current || 0]
+      );
+      if (result.rows.length > 0) {
+        insertedGoal = {
+          ...result.rows[0],
+          target: Number(result.rows[0].target),
+          current: Number(result.rows[0].current),
+          color: 'bg-emerald-500'
+        };
+      }
+    }
+
+    res.status(201).json({ success: true, goal: insertedGoal });
+  } catch (err) {
+    console.error('Error creating goal:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// PUT /api/dashboard/goals/:id - Update Saved Amount of a Goal in Supabase DB
+router.put('/goals/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { current, target } = req.body;
+    const pool = req.app.get('dbPool');
+
+    if (pool && process.env.DATABASE_URL) {
+      if (current !== undefined) {
+        await pool.query('UPDATE savings_goals SET current_amount = $1 WHERE id::text = $2 OR id = $2', [current, id]);
+      }
+      if (target !== undefined) {
+        await pool.query('UPDATE savings_goals SET target_amount = $1 WHERE id::text = $2 OR id = $2', [target, id]);
+      }
+    }
+
+    res.json({ success: true, message: 'Goal updated' });
+  } catch (err) {
+    console.error('Error updating goal:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// DELETE /api/dashboard/goals/:id - Delete Savings Goal from Supabase DB
+router.delete('/goals/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = req.app.get('dbPool');
+
+    if (pool && process.env.DATABASE_URL) {
+      await pool.query('DELETE FROM savings_goals WHERE id::text = $1', [String(id)]);
+    }
+
+    res.json({ success: true, message: 'Goal deleted' });
+  } catch (err) {
+    console.error('Error deleting goal:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
