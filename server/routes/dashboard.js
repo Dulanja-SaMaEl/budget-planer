@@ -262,4 +262,43 @@ router.delete('/goals/:id', async (req, res) => {
   }
 });
 
+// POST /api/dashboard/clean-past-months - Remove all records before startMonth and start fresh
+router.post('/clean-past-months', async (req, res) => {
+  try {
+    const { startMonth } = req.body;
+    const today = new Date();
+    const activeStartMonth = startMonth || `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    const cutoffDate = `${activeStartMonth}-01`;
+    const pool = req.app.get('dbPool');
+
+    if (pool && process.env.DATABASE_URL) {
+      // 1. Delete transactions before start month
+      await pool.query(
+        'DELETE FROM transactions WHERE household_id = $1 AND transaction_date < $2',
+        [DEMO_HOUSEHOLD_ID, cutoffDate]
+      );
+
+      // 2. Delete one-time income sources before start month
+      await pool.query(
+        'DELETE FROM income_sources WHERE household_id = $1 AND income_date < $2 AND recurrence = \'one-time\'',
+        [DEMO_HOUSEHOLD_ID, cutoffDate]
+      );
+
+      // 3. Reset 50/30/20 actual spend in settings to 0 for a clean slate
+      await pool.query(
+        'UPDATE household_settings SET needs_actual = 0, wants_actual = 0, savings_actual = 0 WHERE household_id = $1',
+        [DEMO_HOUSEHOLD_ID]
+      );
+    }
+
+    res.json({ 
+      success: true, 
+      message: `Past data before ${cutoffDate} removed successfully. Tracking starts fresh from ${activeStartMonth}!` 
+    });
+  } catch (err) {
+    console.error('Error cleaning past months:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;

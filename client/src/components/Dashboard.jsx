@@ -156,9 +156,14 @@ export default function Dashboard() {
   });
 
   // Monthly Cash Flow Engine State
+  const [startTrackingMonth, setStartTrackingMonth] = useState(() => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  });
   const [flowSortBy, setFlowSortBy] = useState('date-desc');
-  const [flowTimeRange, setFlowTimeRange] = useState('all');
+  const [flowTimeRange, setFlowTimeRange] = useState('from_start'); // 'from_start', 'this_month', 'all_history'
   const [selectedMonthDetail, setSelectedMonthDetail] = useState(null);
+  const [showClearConfirmModal, setShowClearConfirmModal] = useState(false);
 
   // Helper notification trigger
   const showToast = (msg) => {
@@ -411,30 +416,40 @@ export default function Dashboard() {
   // Monthly Cash Flow Engine Data Aggregation ("How Everything Flows")
   const getMonthlyFlowData = () => {
     const monthKeysSet = new Set();
-
-    // Default to at least last 6 consecutive months
     const today = new Date();
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
-      const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      monthKeysSet.add(mKey);
-    }
+    const activeCurrentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
 
-    // Include any months with logged expenses
+    // Always include current month
+    monthKeysSet.add(activeCurrentMonth);
+
+    // Only include other months from expenses if they have actual logged data
     expenses.forEach(exp => {
       if (exp.date) {
-        monthKeysSet.add(exp.date.substring(0, 7));
+        const mKey = exp.date.substring(0, 7);
+        if (flowTimeRange === 'all_history' || mKey >= startTrackingMonth) {
+          monthKeysSet.add(mKey);
+        }
       }
     });
 
-    // Include any months with income records
+    // Only include other months from income sources if they have actual dated data
     incomeSources.forEach(inc => {
       if (inc.date) {
-        monthKeysSet.add(inc.date.substring(0, 7));
+        const mKey = inc.date.substring(0, 7);
+        if (flowTimeRange === 'all_history' || mKey >= startTrackingMonth) {
+          monthKeysSet.add(mKey);
+        }
       }
     });
 
-    const monthKeys = Array.from(monthKeysSet).sort();
+    let monthKeys = Array.from(monthKeysSet);
+    if (flowTimeRange === 'this_month') {
+      monthKeys = [activeCurrentMonth];
+    } else if (flowTimeRange !== 'all_history') {
+      monthKeys = monthKeys.filter(m => m >= startTrackingMonth);
+    }
+    monthKeys.sort();
+
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
     return monthKeys.map(mKey => {
@@ -508,16 +523,46 @@ export default function Dashboard() {
 
   const rawMonthlyFlow = getMonthlyFlowData();
 
-  // Filter Monthly Flow by Time Range
-  let filteredMonthlyFlow = [...rawMonthlyFlow];
-  if (flowTimeRange === '6m') {
-    filteredMonthlyFlow = filteredMonthlyFlow.slice(-6);
-  } else if (flowTimeRange === '12m') {
-    filteredMonthlyFlow = filteredMonthlyFlow.slice(-12);
-  }
+  // Clear Past Months Data & Start Fresh from Current Month
+  const handleClearPastData = async () => {
+    const today = new Date();
+    const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    const cutoffDate = `${currentMonth}-01`;
+
+    // 1. Update local state
+    setStartTrackingMonth(currentMonth);
+    setFlowTimeRange('from_start');
+
+    // Remove any expenses logged before this month
+    setExpenses(prev => prev.filter(e => !e.date || e.date >= cutoffDate));
+
+    // Remove any one-time income sources logged before this month
+    setIncomeSources(prev => prev.filter(i => i.recurrence === 'monthly' || !i.date || i.date >= cutoffDate));
+
+    // Reset actual spend to 0 for a fresh month
+    setActualSpend({ needs: 0, wants: 0, savings: 0 });
+    handleSaveSettings({ 
+      actualSpend: { needs: 0, wants: 0, savings: 0 }
+    });
+
+    // 2. Call backend clean-past-months endpoint
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
+    try {
+      await fetch(`${apiUrl}/dashboard/clean-past-months`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startMonth: currentMonth })
+      });
+    } catch (err) {
+      console.log('Past data cleared locally.');
+    }
+
+    setShowClearConfirmModal(false);
+    showToast('Reset complete! Started fresh from this month.');
+  };
 
   // Sort Monthly Flow by flowSortBy
-  const sortedMonthlyData = [...filteredMonthlyFlow].sort((a, b) => {
+  const sortedMonthlyData = [...rawMonthlyFlow].sort((a, b) => {
     switch (flowSortBy) {
       case 'date-desc':
         return b.monthKey.localeCompare(a.monthKey);
@@ -883,24 +928,33 @@ export default function Dashboard() {
             {/* Range Selector */}
             <div className="flex items-center bg-slate-950 border border-slate-800 rounded-xl p-1 text-xs">
               <button
-                onClick={() => setFlowTimeRange('6m')}
-                className={`px-2.5 py-1 rounded-lg font-medium transition ${flowTimeRange === '6m' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                onClick={() => setFlowTimeRange('from_start')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition ${flowTimeRange === 'from_start' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
               >
-                Last 6 Mo
+                From This Month
               </button>
               <button
-                onClick={() => setFlowTimeRange('12m')}
-                className={`px-2.5 py-1 rounded-lg font-medium transition ${flowTimeRange === '12m' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                onClick={() => setFlowTimeRange('this_month')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition ${flowTimeRange === 'this_month' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
               >
-                12 Mo
+                This Month Only
               </button>
               <button
-                onClick={() => setFlowTimeRange('all')}
-                className={`px-2.5 py-1 rounded-lg font-medium transition ${flowTimeRange === 'all' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                onClick={() => setFlowTimeRange('all_history')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition ${flowTimeRange === 'all_history' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
               >
-                All Time
+                All History
               </button>
             </div>
+
+            {/* Quick Reset to Current Month Button */}
+            <button
+              onClick={() => setShowClearConfirmModal(true)}
+              className="flex items-center gap-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition"
+              title="Remove past months test data and start fresh from this month"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Clean Past Data
+            </button>
 
             {/* Sorting Method Selector */}
             <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-300">
@@ -978,8 +1032,8 @@ export default function Dashboard() {
               </h3>
               <p className="text-xs text-slate-400">Detailed month-by-month cash flow breakdown. Click column headers to toggle sorting.</p>
             </div>
-            <span className="text-xs text-slate-500 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
-              Showing {sortedMonthlyData.length} months
+            <span className="text-xs text-slate-400 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
+              Showing {sortedMonthlyData.length} month(s) • Tracking from <strong className="text-emerald-400">{startTrackingMonth}</strong>
             </span>
           </div>
 
@@ -2199,6 +2253,50 @@ export default function Dashboard() {
                 className="px-4 py-2 bg-slate-800 text-slate-200 text-xs rounded-xl font-medium hover:bg-slate-700 transition"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Clean Past Months Modal */}
+      {showClearConfirmModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex items-center gap-3 text-rose-400 mb-3">
+              <div className="p-2.5 bg-rose-500/10 rounded-xl border border-rose-500/30">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Start Fresh from This Month?</h3>
+                <p className="text-xs text-slate-400">Set tracking start to {startTrackingMonth}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed mb-4">
+              This will set your cash flow tracking to start strictly from <strong className="text-emerald-400">{startTrackingMonth}</strong> and clean any previous month expenses and test entries.
+            </p>
+
+            <div className="bg-slate-950 p-3 rounded-xl border border-slate-800/80 text-[11px] text-slate-400 space-y-1 mb-5">
+              <div>• Removes transactions before {startTrackingMonth}-01</div>
+              <div>• Resets 50/30/20 actual spend to 0 for a clean start</div>
+              <div>• Keeps your partner salaries & recurring project streams intact</div>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowClearConfirmModal(false)}
+                className="px-4 py-2 bg-slate-800 text-slate-300 text-xs rounded-xl font-medium hover:bg-slate-700 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleClearPastData}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs rounded-xl font-medium shadow-md shadow-rose-900/40 transition flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Confirm & Start Fresh
               </button>
             </div>
           </div>
