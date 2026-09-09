@@ -117,7 +117,12 @@ export default function Dashboard() {
     paidBy: 'Dulanja',
     category: 'Needs',
     splitType: 'Proportional',
-    date: new Date().toISOString().split('T')[0]
+    date: new Date().toISOString().split('T')[0],
+    expenseType: 'daily', // 'daily' or 'monthly'
+    month: new Date().toISOString().slice(0, 7), // '2026-09'
+    partnerMode: 'separate', // 'separate' or 'single'
+    partnerAAmount: 20000,
+    partnerBAmount: 15000,
   });
 
   const [selectedExpense, setSelectedExpense] = useState(null); // For View Expense Detail Modal
@@ -668,26 +673,91 @@ export default function Dashboard() {
 
   const handleAddExpense = async (e) => {
     e.preventDefault();
-    if (!newExpense.title || !newExpense.amount) return;
 
-    const amt = Number(newExpense.amount);
-    const item = {
-      id: Date.now().toString(),
-      title: newExpense.title,
-      amount: amt,
-      paidBy: newExpense.paidBy,
-      category: newExpense.category,
-      splitType: newExpense.splitType,
-      date: newExpense.date || new Date().toISOString().split('T')[0]
-    };
+    let itemsToAdd = [];
 
-    setExpenses(prev => [item, ...prev]);
+    if (newExpense.expenseType === 'monthly') {
+      const selectedMonth = newExpense.month || new Date().toISOString().slice(0, 7);
+      const monthDate = `${selectedMonth}-01`;
 
+      if (newExpense.partnerMode === 'separate') {
+        const amtA = Number(newExpense.partnerAAmount || 0);
+        const amtB = Number(newExpense.partnerBAmount || 0);
+        if (amtA <= 0 && amtB <= 0) return;
+
+        if (amtA > 0) {
+          itemsToAdd.push({
+            id: Date.now().toString() + '-1',
+            title: `${newExpense.title} (${partnerA.name}) [Monthly]`,
+            amount: amtA,
+            paidBy: partnerA.name,
+            category: newExpense.category,
+            splitType: 'Individual',
+            date: monthDate,
+            isMonthly: true,
+            monthPeriod: selectedMonth
+          });
+        }
+
+        if (amtB > 0) {
+          itemsToAdd.push({
+            id: (Date.now() + 1).toString() + '-2',
+            title: `${newExpense.title} (${partnerB.name}) [Monthly]`,
+            amount: amtB,
+            paidBy: partnerB.name,
+            category: newExpense.category,
+            splitType: 'Individual',
+            date: monthDate,
+            isMonthly: true,
+            monthPeriod: selectedMonth
+          });
+        }
+      } else {
+        const amt = Number(newExpense.amount);
+        if (amt <= 0) return;
+        itemsToAdd.push({
+          id: Date.now().toString(),
+          title: `${newExpense.title} [Monthly]`,
+          amount: amt,
+          paidBy: newExpense.paidBy,
+          category: newExpense.category,
+          splitType: newExpense.splitType || 'Proportional',
+          date: monthDate,
+          isMonthly: true,
+          monthPeriod: selectedMonth
+        });
+      }
+    } else {
+      // Daily / Single Transaction
+      if (!newExpense.title || !newExpense.amount) return;
+      const amt = Number(newExpense.amount);
+      if (amt <= 0) return;
+      itemsToAdd.push({
+        id: Date.now().toString(),
+        title: newExpense.title,
+        amount: amt,
+        paidBy: newExpense.paidBy,
+        category: newExpense.category,
+        splitType: newExpense.splitType || 'Proportional',
+        date: newExpense.date || new Date().toISOString().split('T')[0],
+        isMonthly: false
+      });
+    }
+
+    if (itemsToAdd.length === 0) return;
+
+    // Optimistically update local expenses state
+    setExpenses(prev => [...itemsToAdd, ...prev]);
+
+    // Update actual spend
     let updatedSpend = { ...actualSpend };
-    if (newExpense.category === 'Needs') updatedSpend.needs += amt;
-    if (newExpense.category === 'Wants') updatedSpend.wants += amt;
-    if (newExpense.category === 'Savings') updatedSpend.savings += amt;
+    itemsToAdd.forEach(item => {
+      if (item.category === 'Needs') updatedSpend.needs += item.amount;
+      if (item.category === 'Wants') updatedSpend.wants += item.amount;
+      if (item.category === 'Savings') updatedSpend.savings += item.amount;
+    });
     setActualSpend(updatedSpend);
+    handleSaveSettings({ actualSpend: updatedSpend });
 
     // Persist to Supabase Backend
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
@@ -695,19 +765,18 @@ export default function Dashboard() {
       const res = await fetch(`${apiUrl}/expenses`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(item)
+        body: JSON.stringify({ items: itemsToAdd })
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.expense) {
-          setExpenses(prev => [data.expense, ...prev.filter(i => i.id !== item.id)]);
+        if (data.expenses && data.expenses.length > 0) {
+          const idsAdded = new Set(itemsToAdd.map(i => i.id));
+          setExpenses(prev => [...data.expenses, ...prev.filter(i => !idsAdded.has(i.id))]);
         }
       }
     } catch (err) {
       console.log('Expense added locally.');
     }
-
-    handleSaveSettings({ actualSpend: updatedSpend });
 
     setNewExpense({
       title: '',
@@ -715,10 +784,15 @@ export default function Dashboard() {
       paidBy: partnerA.name,
       category: 'Needs',
       splitType: 'Proportional',
-      date: new Date().toISOString().split('T')[0]
+      date: new Date().toISOString().split('T')[0],
+      expenseType: 'daily',
+      month: new Date().toISOString().slice(0, 7),
+      partnerMode: 'separate',
+      partnerAAmount: 20000,
+      partnerBAmount: 15000,
     });
     setShowExpenseModal(false);
-    showToast('Expense logged & saved!');
+    showToast(itemsToAdd.length > 1 ? 'Separate monthly expenses logged!' : 'Expense logged & saved!');
   };
 
   const handleDeleteExpense = async (id) => {
@@ -1379,7 +1453,7 @@ export default function Dashboard() {
                 onClick={() => setShowExpenseModal(true)}
                 className="flex items-center gap-1.5 bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 px-3 py-1.5 rounded-xl text-xs font-semibold transition"
               >
-                + Log Daily Expense
+                + Log Expense
               </button>
             </div>
 
@@ -1398,50 +1472,63 @@ export default function Dashboard() {
                 <tbody className="divide-y divide-slate-800/60">
                   {expenses.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="py-6 text-center text-slate-500 italic">No logged expenses found. Click "+ Log Daily Expense" to add one!</td>
+                      <td colSpan="6" className="py-6 text-center text-slate-500 italic">No logged expenses found. Click "+ Log Expense" to add one!</td>
                     </tr>
                   ) : (
-                    expenses.map((exp) => (
-                      <tr key={exp.id} className="hover:bg-slate-950/40 transition">
-                        <td className="py-3 px-2 text-slate-400 whitespace-nowrap">{exp.date}</td>
-                        <td className="py-3 px-2 font-semibold text-white">{exp.title}</td>
-                        <td className="py-3 px-2">
-                          <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${
-                            exp.category === 'Needs' ? 'bg-blue-500/10 text-blue-400' :
-                            exp.category === 'Wants' ? 'bg-pink-500/10 text-pink-400' :
-                            'bg-emerald-500/10 text-emerald-400'
-                          }`}>
-                            {exp.category}
-                          </span>
-                        </td>
-                        <td className="py-3 px-2">
-                          <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
-                            exp.paidBy === partnerA.name ? 'bg-emerald-500/10 text-emerald-400' : 'bg-indigo-500/10 text-indigo-400'
-                          }`}>
-                            {exp.paidBy}
-                          </span>
-                        </td>
-                        <td className="py-3 px-2 font-bold text-white whitespace-nowrap">
-                          {currency} {Number(exp.amount).toLocaleString()}
-                        </td>
-                        <td className="py-3 px-2 text-right flex items-center justify-end gap-2">
-                          <button 
-                            onClick={() => setSelectedExpense(exp)}
-                            className="text-slate-400 hover:text-emerald-400 transition"
-                            title="View Details"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteExpense(exp.id)}
-                            className="text-slate-500 hover:text-rose-400 transition"
-                            title="Delete Expense"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+                    expenses.map((exp) => {
+                      const isMonthly = exp.isMonthly || (typeof exp.title === 'string' && exp.title.includes('[Monthly]'));
+                      const displayTitle = typeof exp.title === 'string' ? exp.title.replace(/\s*\[Monthly\]/, '') : exp.title;
+                      return (
+                        <tr key={exp.id} className="hover:bg-slate-950/40 transition">
+                          <td className="py-3 px-2 text-slate-400 whitespace-nowrap">{exp.date}</td>
+                          <td className="py-3 px-2 font-semibold text-white">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span>{displayTitle}</span>
+                              {isMonthly && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                  Monthly
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-2">
+                            <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${
+                              exp.category === 'Needs' ? 'bg-blue-500/10 text-blue-400' :
+                              exp.category === 'Wants' ? 'bg-pink-500/10 text-pink-400' :
+                              'bg-emerald-500/10 text-emerald-400'
+                            }`}>
+                              {exp.category}
+                            </span>
+                          </td>
+                          <td className="py-3 px-2">
+                            <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                              exp.paidBy === partnerA.name ? 'bg-emerald-500/10 text-emerald-400' : 'bg-indigo-500/10 text-indigo-400'
+                            }`}>
+                              {exp.paidBy}
+                            </span>
+                          </td>
+                          <td className="py-3 px-2 font-bold text-white whitespace-nowrap">
+                            {currency} {Number(exp.amount).toLocaleString()}
+                          </td>
+                          <td className="py-3 px-2 text-right flex items-center justify-end gap-2">
+                            <button 
+                              onClick={() => setSelectedExpense(exp)}
+                              className="text-slate-400 hover:text-emerald-400 transition"
+                              title="View Details"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteExpense(exp.id)}
+                              className="text-slate-500 hover:text-rose-400 transition"
+                              title="Delete Expense"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -1835,10 +1922,18 @@ export default function Dashboard() {
               <X className="w-5 h-5" />
             </button>
 
-            <h3 className="text-xl font-bold text-white mb-1">{selectedExpense.title}</h3>
+            <h3 className="text-xl font-bold text-white mb-1">
+              {typeof selectedExpense.title === 'string' ? selectedExpense.title.replace(/\s*\[Monthly\]/, '') : selectedExpense.title}
+            </h3>
             <p className="text-xs text-slate-400 mb-4">Expense Details & Partner Split Breakdown</p>
 
             <div className="space-y-3 text-xs">
+              {(selectedExpense.isMonthly || (typeof selectedExpense.title === 'string' && selectedExpense.title.includes('[Monthly]'))) && (
+                <div className="bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-xl text-amber-300 text-xs flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span className="font-semibold">Whole Month Cost Allocation</span>
+                </div>
+              )}
               <div className="bg-slate-950 p-3 rounded-xl flex justify-between">
                 <span className="text-slate-400">Total Amount:</span>
                 <strong className="text-white font-bold text-sm">{currency} {Number(selectedExpense.amount).toLocaleString()}</strong>
@@ -1894,19 +1989,61 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Add New Daily Expense Modal */}
+      {/* Add New Expense Modal (Daily or Whole Month Cost) */}
       {showExpenseModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <h3 className="text-xl font-bold text-white mb-1">Log Daily Expense</h3>
-            <p className="text-xs text-slate-400 mb-4">Log spending by {partnerA.name} or {partnerB.name} to update total balances.</p>
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-lg shadow-2xl relative max-h-[95vh] overflow-y-auto">
+            <button 
+              onClick={() => setShowExpenseModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+              <PlusCircle className="w-5 h-5 text-emerald-400" />
+              Log Expense
+            </h3>
+            <p className="text-xs text-slate-400 mb-4">
+              Add a daily purchase or set a whole-month cost allocation (e.g. separate transport for each partner).
+            </p>
+
+            {/* Scope Toggle: Daily vs Whole Month Cost */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-xl border border-slate-800 mb-4">
+              <button
+                type="button"
+                onClick={() => setNewExpense({ ...newExpense, expenseType: 'daily' })}
+                className={`py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition ${
+                  newExpense.expenseType === 'daily'
+                    ? 'bg-emerald-600 text-white shadow'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span>📅</span>
+                <span>Daily Transaction</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewExpense({ ...newExpense, expenseType: 'monthly' })}
+                className={`py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition ${
+                  newExpense.expenseType === 'monthly'
+                    ? 'bg-emerald-600 text-white shadow'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span>🗓️</span>
+                <span>Whole Month Cost</span>
+              </button>
+            </div>
             
             <form onSubmit={handleAddExpense} className="space-y-4">
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Expense Description</label>
+                <label className="text-xs text-slate-400 block mb-1">
+                  {newExpense.expenseType === 'monthly' ? 'Monthly Cost Title / Description' : 'Expense Description'}
+                </label>
                 <input 
                   type="text" 
-                  placeholder="e.g. Groceries at Keells, Electricity Bill..." 
+                  placeholder={newExpense.expenseType === 'monthly' ? "e.g. Monthly Transport / Fuel, Monthly WiFi..." : "e.g. Groceries at Keells, Electricity Bill..."} 
                   value={newExpense.title}
                   onChange={(e) => setNewExpense({ ...newExpense, title: e.target.value })}
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
@@ -1914,67 +2051,201 @@ export default function Dashboard() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">Amount ({currency})</label>
-                  <input 
-                    type="number" 
-                    value={newExpense.amount}
-                    onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-bold text-sm focus:outline-none focus:border-emerald-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">Paid By</label>
-                  <select
-                    value={newExpense.paidBy}
-                    onChange={(e) => setNewExpense({ ...newExpense, paidBy: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value={partnerA.name}>{partnerA.name}</option>
-                    <option value={partnerB.name}>{partnerB.name}</option>
-                  </select>
-                </div>
-              </div>
+              {/* Form Fields for Whole Month Cost */}
+              {newExpense.expenseType === 'monthly' ? (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-1">Select Month</label>
+                      <input 
+                        type="month" 
+                        value={newExpense.month || new Date().toISOString().slice(0, 7)}
+                        onChange={(e) => setNewExpense({ ...newExpense, month: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-1">Rule Category</label>
+                      <select
+                        value={newExpense.category}
+                        onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                      >
+                        <option value="Needs">Needs (50%)</option>
+                        <option value="Wants">Wants (30%)</option>
+                        <option value="Savings">Savings (20%)</option>
+                      </select>
+                    </div>
+                  </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">Rule Category</label>
-                  <select
-                    value={newExpense.category}
-                    onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value="Needs">Needs (50%)</option>
-                    <option value="Wants">Wants (30%)</option>
-                    <option value="Savings">Savings (20%)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">Date</label>
-                  <input 
-                    type="date" 
-                    value={newExpense.date}
-                    onChange={(e) => setNewExpense({ ...newExpense, date: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
+                  <div>
+                    <label className="text-xs text-slate-400 block mb-1.5">Partner Cost Allocation Mode</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setNewExpense({ ...newExpense, partnerMode: 'separate' })}
+                        className={`py-2 px-3 rounded-lg text-xs font-medium border text-left flex items-center justify-between transition ${
+                          newExpense.partnerMode === 'separate'
+                            ? 'border-emerald-500/60 bg-emerald-500/10 text-white'
+                            : 'border-slate-800 bg-slate-950 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <span>Separate for Each Partner</span>
+                        {newExpense.partnerMode === 'separate' && <span className="w-2 h-2 rounded-full bg-emerald-400"></span>}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewExpense({ ...newExpense, partnerMode: 'single' })}
+                        className={`py-2 px-3 rounded-lg text-xs font-medium border text-left flex items-center justify-between transition ${
+                          newExpense.partnerMode === 'single'
+                            ? 'border-emerald-500/60 bg-emerald-500/10 text-white'
+                            : 'border-slate-800 bg-slate-950 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <span>Single Partner / Shared</span>
+                        {newExpense.partnerMode === 'single' && <span className="w-2 h-2 rounded-full bg-emerald-400"></span>}
+                      </button>
+                    </div>
+                  </div>
 
-              <div className="flex justify-end gap-3 pt-2">
+                  {newExpense.partnerMode === 'separate' ? (
+                    <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-emerald-400 font-semibold block mb-1">
+                            {partnerA.name}'s Cost ({currency})
+                          </label>
+                          <input 
+                            type="number" 
+                            placeholder="0"
+                            value={newExpense.partnerAAmount}
+                            onChange={(e) => setNewExpense({ ...newExpense, partnerAAmount: e.target.value })}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white font-bold text-sm focus:outline-none focus:border-emerald-500"
+                            min="0"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-indigo-400 font-semibold block mb-1">
+                            {partnerB.name}'s Cost ({currency})
+                          </label>
+                          <input 
+                            type="number" 
+                            placeholder="0"
+                            value={newExpense.partnerBAmount}
+                            onChange={(e) => setNewExpense({ ...newExpense, partnerBAmount: e.target.value })}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white font-bold text-sm focus:outline-none focus:border-emerald-500"
+                            min="0"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
+                        <span className="text-slate-400">Total Combined Monthly Outflow:</span>
+                        <span className="text-white font-bold text-sm">
+                          {currency} {(Number(newExpense.partnerAAmount || 0) + Number(newExpense.partnerBAmount || 0)).toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 italic">
+                        💡 Automatically creates 2 distinct monthly expense entries attributed to {partnerA.name} and {partnerB.name}.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">Monthly Amount ({currency})</label>
+                        <input 
+                          type="number" 
+                          value={newExpense.amount}
+                          onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-bold text-sm focus:outline-none focus:border-emerald-500"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">Paid By</label>
+                        <select
+                          value={newExpense.paidBy}
+                          onChange={(e) => setNewExpense({ ...newExpense, paidBy: e.target.value })}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                        >
+                          <option value={partnerA.name}>{partnerA.name}</option>
+                          <option value={partnerB.name}>{partnerB.name}</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                /* Form Fields for Daily Transaction */
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-1">Amount ({currency})</label>
+                      <input 
+                        type="number" 
+                        value={newExpense.amount}
+                        onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-bold text-sm focus:outline-none focus:border-emerald-500"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-1">Paid By</label>
+                      <select
+                        value={newExpense.paidBy}
+                        onChange={(e) => setNewExpense({ ...newExpense, paidBy: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                      >
+                        <option value={partnerA.name}>{partnerA.name}</option>
+                        <option value={partnerB.name}>{partnerB.name}</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-1">Rule Category</label>
+                      <select
+                        value={newExpense.category}
+                        onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                      >
+                        <option value="Needs">Needs (50%)</option>
+                        <option value="Wants">Wants (30%)</option>
+                        <option value="Savings">Savings (20%)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-1">Transaction Date</label>
+                      <input 
+                        type="date" 
+                        value={newExpense.date}
+                        onChange={(e) => setNewExpense({ ...newExpense, date: e.target.value })}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className="flex justify-end gap-3 pt-2 border-t border-slate-800">
                 <button 
                   type="button" 
                   onClick={() => setShowExpenseModal(false)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 text-xs rounded-xl font-medium"
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-medium transition"
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs rounded-xl font-medium shadow-md shadow-emerald-900/40"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs rounded-xl font-medium shadow-md shadow-emerald-900/40 transition flex items-center gap-1.5"
                 >
-                  Log Expense
+                  <span>
+                    {newExpense.expenseType === 'monthly' 
+                      ? (newExpense.partnerMode === 'separate' ? 'Log Monthly Costs' : 'Log Monthly Expense') 
+                      : 'Log Daily Expense'}
+                  </span>
                 </button>
               </div>
             </form>
@@ -2233,15 +2504,26 @@ export default function Dashboard() {
                   {(!selectedMonthDetail.monthExpenses || selectedMonthDetail.monthExpenses.length === 0) ? (
                     <div className="text-slate-500 italic text-center py-2">No individual expenses logged for this month.</div>
                   ) : (
-                    selectedMonthDetail.monthExpenses.map(exp => (
-                      <div key={exp.id} className="flex justify-between items-center py-1 border-b border-slate-800/40 last:border-0">
-                        <div>
-                          <span className="text-white font-medium">{exp.title}</span>
-                          <span className="text-[10px] text-slate-400 block">{exp.category} • Paid by {exp.paidBy} on {exp.date}</span>
+                    selectedMonthDetail.monthExpenses.map(exp => {
+                      const isMonthly = exp.isMonthly || (typeof exp.title === 'string' && exp.title.includes('[Monthly]'));
+                      const displayTitle = typeof exp.title === 'string' ? exp.title.replace(/\s*\[Monthly\]/, '') : exp.title;
+                      return (
+                        <div key={exp.id} className="flex justify-between items-center py-1 border-b border-slate-800/40 last:border-0">
+                          <div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-white font-medium">{displayTitle}</span>
+                              {isMonthly && (
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                  Monthly
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-slate-400 block">{exp.category} • Paid by {exp.paidBy} on {exp.date}</span>
+                          </div>
+                          <strong className="text-slate-200">{currency} {Number(exp.amount).toLocaleString()}</strong>
                         </div>
-                        <strong className="text-slate-200">{currency} {Number(exp.amount).toLocaleString()}</strong>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>

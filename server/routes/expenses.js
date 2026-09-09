@@ -21,42 +21,52 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST /api/expenses - Log New Daily Expense into Supabase
+// POST /api/expenses - Log New Daily Expense or Multiple Monthly Expenses into Supabase
 router.post('/', async (req, res) => {
   try {
-    const { title, amount, paidBy, category, splitType, date } = req.body;
     const pool = req.app.get('dbPool');
-    let insertedExpense = {
-      id: Date.now().toString(),
-      title,
-      amount: Number(amount),
-      paidBy,
-      category,
-      splitType: splitType || 'Proportional',
-      date: date || new Date().toISOString().split('T')[0]
-    };
+    const items = Array.isArray(req.body.items) ? req.body.items : [req.body];
+    const insertedExpenses = [];
 
-    if (pool && process.env.DATABASE_URL) {
-      const query = `
-        INSERT INTO transactions (household_id, paid_by_name, category, title, amount, split_type, transaction_date)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id, title, amount, paid_by_name as "paidBy", category, split_type as "splitType", to_char(transaction_date, 'YYYY-MM-DD') as date
-      `;
-      const result = await pool.query(query, [
-        DEMO_HOUSEHOLD_ID,
-        paidBy || 'Dulanja',
-        category || 'Needs',
+    for (const item of items) {
+      const { title, amount, paidBy, category, splitType, date } = item;
+      let inserted = {
+        id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
         title,
-        amount,
-        splitType || 'Proportional',
-        date || new Date().toISOString().split('T')[0]
-      ]);
-      if (result.rows.length > 0) {
-        insertedExpense = { ...result.rows[0], amount: Number(result.rows[0].amount) };
+        amount: Number(amount),
+        paidBy: paidBy || 'Dulanja',
+        category: category || 'Needs',
+        splitType: splitType || 'Proportional',
+        date: date || new Date().toISOString().split('T')[0]
+      };
+
+      if (pool && process.env.DATABASE_URL) {
+        const query = `
+          INSERT INTO transactions (household_id, paid_by_name, category, title, amount, split_type, transaction_date)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+          RETURNING id, title, amount, paid_by_name as "paidBy", category, split_type as "splitType", to_char(transaction_date, 'YYYY-MM-DD') as date
+        `;
+        const result = await pool.query(query, [
+          DEMO_HOUSEHOLD_ID,
+          paidBy || 'Dulanja',
+          category || 'Needs',
+          title,
+          amount,
+          splitType || 'Proportional',
+          date || new Date().toISOString().split('T')[0]
+        ]);
+        if (result.rows.length > 0) {
+          inserted = { ...result.rows[0], amount: Number(result.rows[0].amount) };
+        }
       }
+      insertedExpenses.push(inserted);
     }
 
-    res.status(201).json({ success: true, message: 'Expense logged successfully', expense: insertedExpense });
+    if (items.length === 1 && !Array.isArray(req.body.items)) {
+      return res.status(201).json({ success: true, message: 'Expense logged successfully', expense: insertedExpenses[0] });
+    }
+
+    res.status(201).json({ success: true, message: 'Expenses logged successfully', expenses: insertedExpenses, expense: insertedExpenses[0] });
   } catch (err) {
     console.error('Error logging expense to DB:', err);
     res.status(500).json({ success: false, message: err.message });
