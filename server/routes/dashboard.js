@@ -20,6 +20,10 @@ router.get('/', async (req, res) => {
     };
     let expenses = [];
     let goals = [];
+    let incomeSources = [
+      { id: 'inc-1', title: 'Mobile App Development Client Project', amount: 120000, receivedBy: 'Dulanja', category: 'Project', recurrence: 'monthly', date: '2026-08-20' },
+      { id: 'inc-2', title: 'Brand Identity & UI Kit Design', amount: 75000, receivedBy: 'Diyana', category: 'Freelance', recurrence: 'monthly', date: '2026-08-18' }
+    ];
 
     if (pool && process.env.DATABASE_URL) {
       try {
@@ -76,6 +80,22 @@ router.get('/', async (req, res) => {
           color: idx % 3 === 0 ? 'bg-emerald-500' : idx % 3 === 1 ? 'bg-indigo-500' : 'bg-purple-500'
         }));
 
+        // Fetch income sources
+        try {
+          const incomeRes = await pool.query(
+            `SELECT id, title, amount, received_by_name as "receivedBy", category, recurrence, to_char(income_date, 'YYYY-MM-DD') as date 
+             FROM income_sources 
+             WHERE household_id = $1 
+             ORDER BY created_at DESC`,
+            [DEMO_HOUSEHOLD_ID]
+          );
+          if (incomeRes.rows.length > 0) {
+            incomeSources = incomeRes.rows.map(row => ({ ...row, amount: Number(row.amount) }));
+          }
+        } catch (incErr) {
+          console.error('Income sources table fallback:', incErr.message);
+        }
+
       } catch (dbErr) {
         console.error('Database query fallback:', dbErr.message);
       }
@@ -88,7 +108,8 @@ router.get('/', async (req, res) => {
         partnerB,
         settings,
         expenses,
-        goals
+        goals,
+        incomeSources
       }
     });
 

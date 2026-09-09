@@ -1,12 +1,67 @@
 import React, { useState, useEffect } from 'react';
 import { 
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid,
+  BarChart, Bar, Legend, ComposedChart, Line
 } from 'recharts';
 import { 
   Wallet, TrendingUp, PiggyBank, Scale, 
-  PlusCircle, Calculator, Heart, ShieldCheck, Target, ArrowUpRight, Settings, Database, Trash2, CheckCircle2, Loader2, Eye, X, ArrowUpCircle
+  PlusCircle, Calculator, Heart, ShieldCheck, Target, ArrowUpRight, Settings, Database, Trash2, CheckCircle2, Loader2, Eye, X, ArrowUpCircle,
+  Briefcase, ArrowUpDown, ArrowUp, ArrowDown, Edit3, Layers, Calendar, ArrowDownRight
 } from 'lucide-react';
+
+// Custom Tooltip for Cash Flow Chart
+const CustomFlowTooltip = ({ active, payload, label, currency }) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div className="bg-slate-900 border border-slate-700 p-4 rounded-xl shadow-2xl text-xs space-y-2 min-w-[230px]">
+        <div className="font-bold text-white text-sm border-b border-slate-800 pb-1.5 flex justify-between items-center">
+          <span>{label}</span>
+          <span className={`px-2 py-0.5 rounded text-[10px] border ${data.statusColor}`}>
+            {data.status}
+          </span>
+        </div>
+
+        <div className="space-y-1">
+          <div className="flex justify-between text-emerald-400 font-semibold">
+            <span>Total Inflow:</span>
+            <span>{currency} {data.inflow.toLocaleString()}</span>
+          </div>
+          <div className="text-[11px] text-slate-400 pl-2">
+            <div>• Salaries: {currency} {data.salaryInflow.toLocaleString()}</div>
+            <div>• Projects: +{currency} {data.projectInflow.toLocaleString()}</div>
+          </div>
+        </div>
+
+        <div className="space-y-1 pt-1 border-t border-slate-800/60">
+          <div className="flex justify-between text-rose-400 font-semibold">
+            <span>Total Outflow:</span>
+            <span>{currency} {data.outflow.toLocaleString()}</span>
+          </div>
+          <div className="text-[11px] text-slate-400 pl-2">
+            <div>• Needs (50%): {currency} {data.needs.toLocaleString()}</div>
+            <div>• Wants (30%): {currency} {data.wants.toLocaleString()}</div>
+            {data.savingsSpend > 0 && <div>• Savings Logged: {currency} {data.savingsSpend.toLocaleString()}</div>}
+          </div>
+        </div>
+
+        <div className="pt-1.5 border-t border-slate-800 flex justify-between font-bold">
+          <span className="text-slate-300">Net Cash Flow:</span>
+          <span className={data.netFlow >= 0 ? 'text-cyan-400' : 'text-rose-400'}>
+            {data.netFlow >= 0 ? '+' : ''}{currency} {data.netFlow.toLocaleString()}
+          </span>
+        </div>
+
+        <div className="flex justify-between text-slate-400 text-[11px]">
+          <span>Savings Momentum:</span>
+          <span className="text-white font-medium">{data.savingsRate}% of inflow</span>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
 
 export default function Dashboard() {
   // Page Initial Loading State
@@ -67,6 +122,44 @@ export default function Dashboard() {
 
   const [selectedExpense, setSelectedExpense] = useState(null); // For View Expense Detail Modal
 
+  // Additional Income Methods & Project Inflows
+  const [incomeSources, setIncomeSources] = useState([
+    {
+      id: 'inc-1',
+      title: 'Mobile App Development Client Project',
+      amount: 120000,
+      receivedBy: 'Dulanja',
+      category: 'Project',
+      recurrence: 'monthly',
+      date: '2026-08-20'
+    },
+    {
+      id: 'inc-2',
+      title: 'Brand Identity & UI Kit Design',
+      amount: 75000,
+      receivedBy: 'Diyana',
+      category: 'Freelance',
+      recurrence: 'monthly',
+      date: '2026-08-18'
+    }
+  ]);
+
+  const [showIncomeModal, setShowIncomeModal] = useState(false);
+  const [editingIncome, setEditingIncome] = useState(null);
+  const [newIncome, setNewIncome] = useState({
+    title: '',
+    amount: 75000,
+    receivedBy: 'Dulanja',
+    category: 'Project',
+    recurrence: 'monthly',
+    date: new Date().toISOString().split('T')[0]
+  });
+
+  // Monthly Cash Flow Engine State
+  const [flowSortBy, setFlowSortBy] = useState('date-desc');
+  const [flowTimeRange, setFlowTimeRange] = useState('all');
+  const [selectedMonthDetail, setSelectedMonthDetail] = useState(null);
+
   // Helper notification trigger
   const showToast = (msg) => {
     setNotification(msg);
@@ -100,6 +193,9 @@ export default function Dashboard() {
                 if (dashData.data.partnerB) setPartnerB(dashData.data.partnerB);
                 if (dashData.data.expenses) setExpenses(dashData.data.expenses);
                 if (dashData.data.goals) setGoals(dashData.data.goals);
+                if (dashData.data.incomeSources && dashData.data.incomeSources.length > 0) {
+                  setIncomeSources(dashData.data.incomeSources);
+                }
                 
                 if (dashData.data.settings) {
                   const s = dashData.data.settings;
@@ -181,12 +277,102 @@ export default function Dashboard() {
     showToast('Settings saved to Supabase DB!');
   };
 
-  // Calculated Combined Financial Metrics
-  const combinedIncome = Number(partnerA.income) + Number(partnerB.income);
-  const partnerASharePercent = combinedIncome > 0 ? ((partnerA.income / combinedIncome) * 100).toFixed(1) : 50;
-  const partnerBSharePercent = combinedIncome > 0 ? ((partnerB.income / combinedIncome) * 100).toFixed(1) : 50;
+  // Income Methods & Project Inflows CRUD Handlers
+  const handleAddIncome = async (e) => {
+    e.preventDefault();
+    if (!newIncome.title || !newIncome.amount) return;
+    const amt = Number(newIncome.amount);
+    const item = {
+      id: Date.now().toString(),
+      title: newIncome.title,
+      amount: amt,
+      receivedBy: newIncome.receivedBy || partnerA.name,
+      category: newIncome.category || 'Project',
+      recurrence: newIncome.recurrence || 'monthly',
+      date: newIncome.date || new Date().toISOString().split('T')[0]
+    };
 
-  // 50/30/20 Rule Target Benchmarks
+    setIncomeSources(prev => [item, ...prev]);
+
+    // Persist to Supabase Backend
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
+    try {
+      const res = await fetch(`${apiUrl}/income`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(item)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.income) {
+          setIncomeSources(prev => [data.income, ...prev.filter(i => i.id !== item.id)]);
+        }
+      }
+    } catch (err) {
+      console.log('Income added locally.');
+    }
+
+    setNewIncome({
+      title: '',
+      amount: 75000,
+      receivedBy: partnerA.name,
+      category: 'Project',
+      recurrence: 'monthly',
+      date: new Date().toISOString().split('T')[0]
+    });
+    setShowIncomeModal(false);
+    showToast('New income method added!');
+  };
+
+  const handleUpdateIncome = async (id, updatedFields) => {
+    setIncomeSources(prev => prev.map(inc => String(inc.id) === String(id) ? { ...inc, ...updatedFields } : inc));
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
+    try {
+      await fetch(`${apiUrl}/income/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedFields)
+      });
+    } catch (err) {
+      console.log('Income updated locally.');
+    }
+    showToast('Income method updated!');
+  };
+
+  const handleDeleteIncome = async (id) => {
+    setIncomeSources(prev => prev.filter(inc => String(inc.id) !== String(id)));
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://budget-planer-f7ob.onrender.com/api';
+    try {
+      await fetch(`${apiUrl}/income/${id}`, { method: 'DELETE' });
+    } catch (err) {
+      console.log('Income deleted locally.');
+    }
+    showToast('Income method removed!');
+  };
+
+  // Calculated Combined Financial Metrics (Salaries + Project Inflows)
+  const baseSalaryA = Number(partnerA.income);
+  const baseSalaryB = Number(partnerB.income);
+  const totalBaseSalaries = baseSalaryA + baseSalaryB;
+
+  const totalProjectIncome = incomeSources.reduce((sum, inc) => sum + Number(inc.amount), 0);
+  const partnerAProjectIncome = incomeSources.filter(inc => inc.receivedBy === partnerA.name).reduce((sum, inc) => sum + Number(inc.amount), 0);
+  const partnerBProjectIncome = incomeSources.filter(inc => inc.receivedBy === partnerB.name).reduce((sum, inc) => sum + Number(inc.amount), 0);
+  const jointProjectIncome = incomeSources.filter(inc => inc.receivedBy === 'Joint').reduce((sum, inc) => sum + Number(inc.amount), 0);
+
+  const totalPartnerAIncome = baseSalaryA + partnerAProjectIncome + (jointProjectIncome / 2);
+  const totalPartnerBIncome = baseSalaryB + partnerBProjectIncome + (jointProjectIncome / 2);
+  const combinedIncome = totalPartnerAIncome + totalPartnerBIncome;
+
+  const partnerASharePercent = combinedIncome > 0 ? ((totalPartnerAIncome / combinedIncome) * 100).toFixed(1) : 50;
+  const partnerBSharePercent = combinedIncome > 0 ? ((totalPartnerBIncome / combinedIncome) * 100).toFixed(1) : 50;
+
+  const baseShareAPercent = totalBaseSalaries > 0 ? ((baseSalaryA / totalBaseSalaries) * 100).toFixed(1) : 50;
+  const baseShareBPercent = totalBaseSalaries > 0 ? ((baseSalaryB / totalBaseSalaries) * 100).toFixed(1) : 50;
+
+  // 50/30/20 Rule Target Benchmarks (calculated on full combined income)
   const needsTarget = combinedIncome * 0.50;
   const wantsTarget = combinedIncome * 0.30;
   const savingsTarget = combinedIncome * 0.20;
@@ -221,6 +407,147 @@ export default function Dashboard() {
   };
 
   const projectionData = generateProjectionData();
+
+  // Monthly Cash Flow Engine Data Aggregation ("How Everything Flows")
+  const getMonthlyFlowData = () => {
+    const monthKeysSet = new Set();
+
+    // Default to at least last 6 consecutive months
+    const today = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      monthKeysSet.add(mKey);
+    }
+
+    // Include any months with logged expenses
+    expenses.forEach(exp => {
+      if (exp.date) {
+        monthKeysSet.add(exp.date.substring(0, 7));
+      }
+    });
+
+    // Include any months with income records
+    incomeSources.forEach(inc => {
+      if (inc.date) {
+        monthKeysSet.add(inc.date.substring(0, 7));
+      }
+    });
+
+    const monthKeys = Array.from(monthKeysSet).sort();
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+    return monthKeys.map(mKey => {
+      const [yearStr, monthStr] = mKey.split('-');
+      const year = parseInt(yearStr, 10);
+      const monthIdx = parseInt(monthStr, 10) - 1;
+      const monthLabel = `${monthNames[monthIdx]} ${year}`;
+
+      // Inflow: Base salaries
+      const salaryInflow = totalBaseSalaries;
+
+      // Project Inflows: monthly recurring + one-time in this specific month
+      const relevantIncomeSources = incomeSources.filter(inc => {
+        if (inc.recurrence === 'monthly') return true;
+        return inc.date && inc.date.startsWith(mKey);
+      });
+      const projectInflow = relevantIncomeSources.reduce((sum, inc) => sum + Number(inc.amount), 0);
+      const totalInflow = salaryInflow + projectInflow;
+
+      // Outflow: Expenses logged for this month
+      const monthExpenses = expenses.filter(exp => exp.date && exp.date.startsWith(mKey));
+      const needs = monthExpenses.filter(e => e.category === 'Needs').reduce((sum, e) => sum + Number(e.amount), 0);
+      const wants = monthExpenses.filter(e => e.category === 'Wants').reduce((sum, e) => sum + Number(e.amount), 0);
+      const savingsSpend = monthExpenses.filter(e => e.category === 'Savings').reduce((sum, e) => sum + Number(e.amount), 0);
+      
+      const totalOutflow = needs + wants + savingsSpend;
+      const netFlow = totalInflow - totalOutflow;
+      const savingsRate = totalInflow > 0 ? Math.round((netFlow / totalInflow) * 100) : 0;
+
+      let status = 'Optimal Surplus';
+      let statusColor = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
+      if (netFlow < 0) {
+        status = 'Deficit Warning';
+        statusColor = 'text-rose-400 bg-rose-500/10 border-rose-500/30';
+      } else if (savingsRate >= 30) {
+        status = 'High Growth (30%+)';
+        statusColor = 'text-teal-400 bg-teal-500/10 border-teal-500/30';
+      } else if (savingsRate >= 20) {
+        status = 'Optimal Surplus (20%)';
+        statusColor = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
+      } else if (netFlow > 0) {
+        status = 'Positive Flow';
+        statusColor = 'text-blue-400 bg-blue-500/10 border-blue-500/30';
+      } else {
+        status = 'Break Even';
+        statusColor = 'text-amber-400 bg-amber-500/10 border-amber-500/30';
+      }
+
+      return {
+        monthKey: mKey,
+        monthLabel,
+        year,
+        monthIdx,
+        salaryInflow,
+        projectInflow,
+        inflow: totalInflow,
+        needs,
+        wants,
+        savingsSpend,
+        outflow: totalOutflow,
+        netFlow,
+        savingsRate,
+        status,
+        statusColor,
+        expensesCount: monthExpenses.length,
+        monthExpenses,
+        relevantIncomeSources
+      };
+    });
+  };
+
+  const rawMonthlyFlow = getMonthlyFlowData();
+
+  // Filter Monthly Flow by Time Range
+  let filteredMonthlyFlow = [...rawMonthlyFlow];
+  if (flowTimeRange === '6m') {
+    filteredMonthlyFlow = filteredMonthlyFlow.slice(-6);
+  } else if (flowTimeRange === '12m') {
+    filteredMonthlyFlow = filteredMonthlyFlow.slice(-12);
+  }
+
+  // Sort Monthly Flow by flowSortBy
+  const sortedMonthlyData = [...filteredMonthlyFlow].sort((a, b) => {
+    switch (flowSortBy) {
+      case 'date-desc':
+        return b.monthKey.localeCompare(a.monthKey);
+      case 'date-asc':
+        return a.monthKey.localeCompare(b.monthKey);
+      case 'inflow-desc':
+        return b.inflow - a.inflow;
+      case 'inflow-asc':
+        return a.inflow - b.inflow;
+      case 'outflow-desc':
+        return b.outflow - a.outflow;
+      case 'outflow-asc':
+        return a.outflow - b.outflow;
+      case 'net-desc':
+        return b.netFlow - a.netFlow;
+      case 'net-asc':
+        return a.netFlow - b.netFlow;
+      case 'rate-desc':
+        return b.savingsRate - a.savingsRate;
+      case 'rate-asc':
+        return a.savingsRate - b.savingsRate;
+      default:
+        return b.monthKey.localeCompare(a.monthKey);
+    }
+  });
+
+  const avgInflow = sortedMonthlyData.length > 0 ? Math.round(sortedMonthlyData.reduce((s, m) => s + m.inflow, 0) / sortedMonthlyData.length) : 0;
+  const avgOutflow = sortedMonthlyData.length > 0 ? Math.round(sortedMonthlyData.reduce((s, m) => s + m.outflow, 0) / sortedMonthlyData.length) : 0;
+  const avgNetFlow = sortedMonthlyData.length > 0 ? Math.round(sortedMonthlyData.reduce((s, m) => s + m.netFlow, 0) / sortedMonthlyData.length) : 0;
+  const avgSavingsRate = avgInflow > 0 ? Math.round((avgNetFlow / avgInflow) * 100) : 0;
 
   // Handle Savings Goal Add / Update / Deposit / Delete
   const handleAddGoal = async (e) => {
@@ -441,6 +768,24 @@ export default function Dashboard() {
           </div>
 
           <button 
+            onClick={() => {
+              setEditingIncome(null);
+              setNewIncome({
+                title: '',
+                amount: 75000,
+                receivedBy: partnerA.name,
+                category: 'Project',
+                recurrence: 'monthly',
+                date: new Date().toISOString().split('T')[0]
+              });
+              setShowIncomeModal(true);
+            }}
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-100 px-3.5 py-2 rounded-xl text-sm font-medium border border-slate-700 transition"
+          >
+            <Briefcase className="w-4 h-4 text-emerald-400" /> Add Income / Project
+          </button>
+
+          <button 
             onClick={() => setShowExpenseModal(true)}
             className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-100 px-4 py-2 rounded-xl text-sm font-medium border border-slate-700 transition"
           >
@@ -467,9 +812,12 @@ export default function Dashboard() {
           <div className="text-2xl font-bold text-white mt-2">
             {currency} {combinedIncome.toLocaleString()}<span className="text-xs text-slate-400 font-normal">/mo</span>
           </div>
-          <div className="mt-3 text-xs text-slate-400 flex items-center gap-2">
+          <div className="mt-3 text-xs text-slate-400 flex flex-wrap items-center gap-1.5">
             <span className="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-medium">{partnerASharePercent}% {partnerA.name}</span>
             <span className="bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded font-medium">{partnerBSharePercent}% {partnerB.name}</span>
+            {totalProjectIncome > 0 && (
+              <span className="bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded font-medium">+{currency} {(totalProjectIncome / 1000).toFixed(0)}k projects</span>
+            )}
           </div>
         </div>
 
@@ -511,7 +859,247 @@ export default function Dashboard() {
             {partnerASharePercent}% : {partnerBSharePercent}%
           </div>
           <div className="mt-3 text-xs text-slate-400">
-            Relative income distribution
+            Includes salaries + {incomeSources.length} project streams
+          </div>
+        </div>
+      </div>
+
+      {/* Monthly Cash Flow Analysis ("How Everything Flows") */}
+      <div className="max-w-7xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-8 shadow-sm">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+          <div>
+            <div className="flex items-center gap-2 text-emerald-400 text-xs font-semibold uppercase tracking-wider">
+              <Layers className="w-4 h-4" /> Monthly Flow Analysis
+            </div>
+            <h2 className="text-2xl font-extrabold text-white tracking-tight mt-1 flex items-center gap-2">
+              How Everything Flows: Cash Flow & Trends
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Visualize monthly inflows (salaries + projects) vs outflows (expenses) and track household net savings momentum.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Range Selector */}
+            <div className="flex items-center bg-slate-950 border border-slate-800 rounded-xl p-1 text-xs">
+              <button
+                onClick={() => setFlowTimeRange('6m')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition ${flowTimeRange === '6m' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                Last 6 Mo
+              </button>
+              <button
+                onClick={() => setFlowTimeRange('12m')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition ${flowTimeRange === '12m' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                12 Mo
+              </button>
+              <button
+                onClick={() => setFlowTimeRange('all')}
+                className={`px-2.5 py-1 rounded-lg font-medium transition ${flowTimeRange === 'all' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                All Time
+              </button>
+            </div>
+
+            {/* Sorting Method Selector */}
+            <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-300">
+              <ArrowUpDown className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-slate-400 hidden sm:inline">Sort by:</span>
+              <select
+                value={flowSortBy}
+                onChange={(e) => setFlowSortBy(e.target.value)}
+                className="bg-transparent text-emerald-400 font-bold text-xs focus:outline-none cursor-pointer"
+              >
+                <option value="date-desc" className="bg-slate-900 text-white">Month (Newest First)</option>
+                <option value="date-asc" className="bg-slate-900 text-white">Month (Oldest First)</option>
+                <option value="net-desc" className="bg-slate-900 text-white">Highest Net Cash Flow (Surplus)</option>
+                <option value="net-asc" className="bg-slate-900 text-white">Lowest Net Cash Flow</option>
+                <option value="inflow-desc" className="bg-slate-900 text-white">Highest Inflow (Income)</option>
+                <option value="inflow-asc" className="bg-slate-900 text-white">Lowest Inflow</option>
+                <option value="outflow-desc" className="bg-slate-900 text-white">Highest Outflow (Expenses)</option>
+                <option value="outflow-asc" className="bg-slate-900 text-white">Lowest Outflow</option>
+                <option value="rate-desc" className="bg-slate-900 text-white">Highest Savings Rate (%)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* 3 Metric Overview Badges */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/80">
+            <span className="text-xs text-slate-400 block font-medium">Average Monthly Inflow</span>
+            <div className="text-xl font-bold text-emerald-400 mt-1">
+              {currency} {avgInflow.toLocaleString()}
+            </div>
+            <span className="text-[11px] text-slate-500 mt-0.5 block">Includes salaries & active projects</span>
+          </div>
+
+          <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/80">
+            <span className="text-xs text-slate-400 block font-medium">Average Monthly Outflow</span>
+            <div className="text-xl font-bold text-rose-400 mt-1">
+              {currency} {avgOutflow.toLocaleString()}
+            </div>
+            <span className="text-[11px] text-slate-500 mt-0.5 block">Needs & wants expenditures</span>
+          </div>
+
+          <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/80">
+            <span className="text-xs text-slate-400 block font-medium">Average Monthly Net Flow</span>
+            <div className={`text-xl font-bold mt-1 ${avgNetFlow >= 0 ? 'text-cyan-400' : 'text-rose-400'}`}>
+              {avgNetFlow >= 0 ? '+' : ''}{currency} {avgNetFlow.toLocaleString()}
+              <span className="text-xs font-normal text-slate-400 ml-1.5">({avgSavingsRate}% saved)</span>
+            </div>
+            <span className="text-[11px] text-slate-500 mt-0.5 block">Available for goals & compounding</span>
+          </div>
+        </div>
+
+        {/* The Flow Chart */}
+        <div className="h-72 sm:h-80 w-full mb-8 bg-slate-950/40 p-3 rounded-xl border border-slate-800/60">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={sortedMonthlyData} margin={{ top: 15, right: 15, bottom: 5, left: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+              <XAxis dataKey="monthLabel" stroke="#94a3b8" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+              <YAxis stroke="#94a3b8" tick={{ fill: '#94a3b8', fontSize: 11 }} formatter={(val) => `${currency} ${(val / 1000).toFixed(0)}k`} />
+              <Tooltip content={<CustomFlowTooltip currency={currency} />} />
+              <Legend wrapperStyle={{ paddingTop: '12px', fontSize: '12px' }} />
+              <Bar dataKey="inflow" name="Total Inflow (Income)" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={40} />
+              <Bar dataKey="outflow" name="Total Outflow (Expenses)" fill="#f43f5e" radius={[4, 4, 0, 0]} maxBarSize={40} />
+              <Line type="monotone" dataKey="netFlow" name="Net Cash Flow" stroke="#38bdf8" strokeWidth={3} dot={{ fill: '#38bdf8', r: 4 }} activeDot={{ r: 6 }} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* The Flow Table Below the Chart */}
+        <div className="pt-2">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Calculator className="w-4 h-4 text-emerald-400" /> Monthly Cash Flow Ledger
+              </h3>
+              <p className="text-xs text-slate-400">Detailed month-by-month cash flow breakdown. Click column headers to toggle sorting.</p>
+            </div>
+            <span className="text-xs text-slate-500 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
+              Showing {sortedMonthlyData.length} months
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 text-slate-400 uppercase tracking-wider select-none">
+                  <th 
+                    onClick={() => setFlowSortBy(flowSortBy === 'date-desc' ? 'date-asc' : 'date-desc')}
+                    className="pb-3 px-3 cursor-pointer hover:text-white transition"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Month</span>
+                      {flowSortBy === 'date-desc' && <ArrowDown className="w-3 h-3 text-emerald-400" />}
+                      {flowSortBy === 'date-asc' && <ArrowUp className="w-3 h-3 text-emerald-400" />}
+                    </div>
+                  </th>
+                  <th 
+                    onClick={() => setFlowSortBy(flowSortBy === 'inflow-desc' ? 'inflow-asc' : 'inflow-desc')}
+                    className="pb-3 px-3 cursor-pointer hover:text-white transition"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Total Inflow</span>
+                      {flowSortBy === 'inflow-desc' && <ArrowDown className="w-3 h-3 text-emerald-400" />}
+                      {flowSortBy === 'inflow-asc' && <ArrowUp className="w-3 h-3 text-emerald-400" />}
+                    </div>
+                  </th>
+                  <th 
+                    onClick={() => setFlowSortBy(flowSortBy === 'outflow-desc' ? 'outflow-asc' : 'outflow-desc')}
+                    className="pb-3 px-3 cursor-pointer hover:text-white transition"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Total Outflow</span>
+                      {flowSortBy === 'outflow-desc' && <ArrowDown className="w-3 h-3 text-rose-400" />}
+                      {flowSortBy === 'outflow-asc' && <ArrowUp className="w-3 h-3 text-rose-400" />}
+                    </div>
+                  </th>
+                  <th 
+                    onClick={() => setFlowSortBy(flowSortBy === 'net-desc' ? 'net-asc' : 'net-desc')}
+                    className="pb-3 px-3 cursor-pointer hover:text-white transition"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Net Cash Flow</span>
+                      {flowSortBy === 'net-desc' && <ArrowDown className="w-3 h-3 text-cyan-400" />}
+                      {flowSortBy === 'net-asc' && <ArrowUp className="w-3 h-3 text-cyan-400" />}
+                    </div>
+                  </th>
+                  <th 
+                    onClick={() => setFlowSortBy(flowSortBy === 'rate-desc' ? 'rate-asc' : 'rate-desc')}
+                    className="pb-3 px-3 cursor-pointer hover:text-white transition"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Savings Rate</span>
+                      {flowSortBy === 'rate-desc' && <ArrowDown className="w-3 h-3 text-emerald-400" />}
+                      {flowSortBy === 'rate-asc' && <ArrowUp className="w-3 h-3 text-emerald-400" />}
+                    </div>
+                  </th>
+                  <th className="pb-3 px-3">Flow Status</th>
+                  <th className="pb-3 px-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {sortedMonthlyData.map((row) => (
+                  <tr key={row.monthKey} className="hover:bg-slate-950/40 transition">
+                    <td className="py-3 px-3 whitespace-nowrap">
+                      <div className="font-bold text-white text-xs">{row.monthLabel}</div>
+                      <span className="text-[10px] text-slate-500">{row.monthKey}</span>
+                    </td>
+                    <td className="py-3 px-3 whitespace-nowrap">
+                      <div className="font-bold text-emerald-400 text-xs">
+                        {currency} {row.inflow.toLocaleString()}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        Salaries: {currency} {row.salaryInflow.toLocaleString()} | Projects: +{currency} {row.projectInflow.toLocaleString()}
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 whitespace-nowrap">
+                      <div className="font-bold text-rose-400 text-xs">
+                        {currency} {row.outflow.toLocaleString()}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        Needs: {currency} {row.needs.toLocaleString()} | Wants: {currency} {row.wants.toLocaleString()}
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 whitespace-nowrap">
+                      <span className={`px-2 py-0.5 rounded font-bold text-xs inline-flex items-center gap-1 ${
+                        row.netFlow >= 0 ? 'bg-cyan-500/10 text-cyan-400' : 'bg-rose-500/10 text-rose-400'
+                      }`}>
+                        {row.netFlow >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                        {row.netFlow >= 0 ? '+' : ''}{currency} {row.netFlow.toLocaleString()}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <div className="w-16 bg-slate-800 rounded-full h-1.5">
+                          <div
+                            className={`h-1.5 rounded-full ${row.savingsRate >= 20 ? 'bg-emerald-500' : row.savingsRate > 0 ? 'bg-blue-500' : 'bg-rose-500'}`}
+                            style={{ width: `${Math.max(0, Math.min(row.savingsRate, 100))}%` }}
+                          />
+                        </div>
+                        <span className="font-semibold text-white text-xs">{row.savingsRate}%</span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 whitespace-nowrap">
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-medium border ${row.statusColor}`}>
+                        {row.status}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => setSelectedMonthDetail(row)}
+                        className="text-slate-400 hover:text-emerald-400 bg-slate-800/80 hover:bg-slate-800 px-2.5 py-1 rounded-lg text-xs font-medium transition inline-flex items-center gap-1"
+                      >
+                        <Eye className="w-3.5 h-3.5" /> Details
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -599,6 +1187,126 @@ export default function Dashboard() {
                 <div className="text-xs text-slate-400">
                   Contributes <strong className="text-indigo-400">{partnerBSharePercent}%</strong> to household income pool
                 </div>
+              </div>
+            </div>
+
+            {/* Project Earnings & Extra Income Methods Sub-Section */}
+            <div className="pt-5 mt-5 border-t border-slate-800/80">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Briefcase className="w-4 h-4 text-emerald-400" /> Project Earnings & Income Methods
+                  </h3>
+                  <p className="text-[11px] text-slate-400">Track client projects, freelancing, and secondary revenue streams.</p>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setEditingIncome(null);
+                    setNewIncome({
+                      title: '',
+                      amount: 75000,
+                      receivedBy: partnerA.name,
+                      category: 'Project',
+                      recurrence: 'monthly',
+                      date: new Date().toISOString().split('T')[0]
+                    });
+                    setShowIncomeModal(true);
+                  }}
+                  className="flex items-center gap-1.5 bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 border border-emerald-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold transition self-start sm:self-auto"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" /> + Add Income Method
+                </button>
+              </div>
+
+              {/* Project Income Summary Pills */}
+              <div className="flex flex-wrap items-center gap-2 mb-4 text-[11px]">
+                <span className="bg-slate-950 border border-slate-800 text-slate-300 px-2.5 py-1 rounded-lg">
+                  Base Salaries: <strong className="text-white">{currency} {totalBaseSalaries.toLocaleString()}</strong>
+                </span>
+                <span className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-2.5 py-1 rounded-lg">
+                  Projects / Extra: <strong className="text-emerald-300">+{currency} {totalProjectIncome.toLocaleString()}</strong> ({incomeSources.length} streams)
+                </span>
+                <span className="bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 px-2.5 py-1 rounded-lg">
+                  Total Monthly Inflow: <strong className="text-white">{currency} {combinedIncome.toLocaleString()}</strong>
+                </span>
+              </div>
+
+              {/* List of Income Streams */}
+              <div className="space-y-2.5">
+                {incomeSources.length === 0 ? (
+                  <div className="text-center text-slate-500 text-xs py-5 italic bg-slate-950/50 rounded-xl border border-dashed border-slate-800">
+                    No extra income methods or projects logged yet. Click "+ Add Income Method" to add freelance, client projects, or side income!
+                  </div>
+                ) : (
+                  incomeSources.map((inc) => (
+                    <div key={inc.id} className="bg-slate-950 p-3.5 rounded-xl border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-slate-700 transition">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold text-white text-xs">{inc.title}</span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                            inc.category === 'Project' ? 'bg-blue-500/10 text-blue-400' :
+                            inc.category === 'Freelance' ? 'bg-purple-500/10 text-purple-400' :
+                            inc.category === 'Side Business' ? 'bg-emerald-500/10 text-emerald-400' :
+                            'bg-amber-500/10 text-amber-400'
+                          }`}>
+                            {inc.category}
+                          </span>
+                          <span className="bg-slate-800 text-slate-400 text-[10px] px-1.5 py-0.5 rounded">
+                            {inc.recurrence === 'monthly' ? 'Monthly' : 'One-time'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                          <span>Earned by: <strong className={inc.receivedBy === partnerA.name ? 'text-emerald-400' : inc.receivedBy === partnerB.name ? 'text-indigo-400' : 'text-teal-400'}>{inc.receivedBy}</strong></span>
+                          {inc.date && <span>• Date: {inc.date}</span>}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 self-end sm:self-auto">
+                        <div className="flex items-center gap-1 bg-slate-900 border border-slate-700/80 rounded-lg px-2 py-1">
+                          <span className="text-slate-500 font-bold text-xs">{currency}</span>
+                          <input
+                            type="number"
+                            value={inc.amount}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setIncomeSources(prev => prev.map(item => item.id === inc.id ? { ...item, amount: val } : item));
+                            }}
+                            onBlur={(e) => handleUpdateIncome(inc.id, { amount: Number(e.target.value) })}
+                            className="w-24 bg-transparent text-emerald-400 font-bold text-xs focus:outline-none"
+                          />
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            setEditingIncome(inc);
+                            setNewIncome({
+                              title: inc.title,
+                              amount: inc.amount,
+                              receivedBy: inc.receivedBy,
+                              category: inc.category,
+                              recurrence: inc.recurrence,
+                              date: inc.date || new Date().toISOString().split('T')[0]
+                            });
+                            setShowIncomeModal(true);
+                          }}
+                          className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition"
+                          title="Edit Method"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+
+                        <button
+                          onClick={() => handleDeleteIncome(inc.id)}
+                          className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition"
+                          title="Delete Method"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -1276,6 +1984,223 @@ export default function Dashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add / Edit Income Stream Modal */}
+      {showIncomeModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <Briefcase className="w-5 h-5 text-emerald-400" />
+                {editingIncome ? 'Edit Income Method / Project' : 'Add Income Method / Project'}
+              </h3>
+              <button onClick={() => setShowIncomeModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-400 mb-4">
+              Track earnings from client projects, freelancing, or secondary revenue streams.
+            </p>
+
+            <form 
+              onSubmit={editingIncome ? (e) => {
+                e.preventDefault();
+                handleUpdateIncome(editingIncome.id, newIncome);
+                setShowIncomeModal(false);
+              } : handleAddIncome} 
+              className="space-y-4"
+            >
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Project / Source Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Mobile App Development, Brand Identity Kit, Consulting..."
+                  value={newIncome.title}
+                  onChange={(e) => setNewIncome({ ...newIncome, title: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Amount ({currency})</label>
+                  <input
+                    type="number"
+                    value={newIncome.amount}
+                    onChange={(e) => setNewIncome({ ...newIncome, amount: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-bold text-sm focus:outline-none focus:border-emerald-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Received By</label>
+                  <select
+                    value={newIncome.receivedBy}
+                    onChange={(e) => setNewIncome({ ...newIncome, receivedBy: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value={partnerA.name}>{partnerA.name}</option>
+                    <option value={partnerB.name}>{partnerB.name}</option>
+                    <option value="Joint">Joint (Shared)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Category</label>
+                  <select
+                    value={newIncome.category}
+                    onChange={(e) => setNewIncome({ ...newIncome, category: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="Project">Client Project</option>
+                    <option value="Freelance">Freelance Gig</option>
+                    <option value="Side Business">Side Business</option>
+                    <option value="Consulting">Consulting</option>
+                    <option value="Investment">Investment / Dividend</option>
+                    <option value="Bonus">Bonus / Commission</option>
+                    <option value="Other">Other Income</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Recurrence</label>
+                  <select
+                    value={newIncome.recurrence}
+                    onChange={(e) => setNewIncome({ ...newIncome, recurrence: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="monthly">Monthly Recurring</option>
+                    <option value="one-time">One-Time Project</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Date</label>
+                <input
+                  type="date"
+                  value={newIncome.date}
+                  onChange={(e) => setNewIncome({ ...newIncome, date: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowIncomeModal(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 text-xs rounded-xl font-medium hover:bg-slate-700 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs rounded-xl font-medium shadow-md shadow-emerald-900/40 transition"
+                >
+                  {editingIncome ? 'Update Income Method' : 'Save Income Method'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* View Month Flow Detail Modal */}
+      {selectedMonthDetail && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-lg shadow-2xl relative max-h-[90vh] flex flex-col">
+            <button 
+              onClick={() => setSelectedMonthDetail(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-emerald-400" />
+              {selectedMonthDetail.monthLabel} Cash Flow Breakdown
+            </h3>
+            <p className="text-xs text-slate-400 mb-4">Complete breakdown of money in and money out for this month.</p>
+
+            {/* Month Metrics Summary Cards */}
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                <span className="text-[10px] uppercase text-slate-400 block">Total Inflow</span>
+                <span className="text-sm font-bold text-emerald-400">{currency} {selectedMonthDetail.inflow.toLocaleString()}</span>
+              </div>
+              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                <span className="text-[10px] uppercase text-slate-400 block">Total Outflow</span>
+                <span className="text-sm font-bold text-rose-400">{currency} {selectedMonthDetail.outflow.toLocaleString()}</span>
+              </div>
+              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                <span className="text-[10px] uppercase text-slate-400 block">Net Surplus</span>
+                <span className={`text-sm font-bold ${selectedMonthDetail.netFlow >= 0 ? 'text-cyan-400' : 'text-rose-400'}`}>
+                  {selectedMonthDetail.netFlow >= 0 ? '+' : ''}{currency} {selectedMonthDetail.netFlow.toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            <div className="overflow-y-auto space-y-4 flex-1 pr-1">
+              {/* Income Streams this Month */}
+              <div>
+                <h4 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-2">Income Inflow Sources</h4>
+                <div className="bg-slate-950 rounded-xl border border-slate-800 p-3 space-y-2 text-xs">
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-800/80">
+                    <div>
+                      <span className="font-semibold text-white">Partner Base Salaries</span>
+                      <span className="text-[10px] text-slate-400 block">{partnerA.name} ({currency} {partnerA.income.toLocaleString()}) & {partnerB.name} ({currency} {partnerB.income.toLocaleString()})</span>
+                    </div>
+                    <strong className="text-emerald-400">{currency} {selectedMonthDetail.salaryInflow.toLocaleString()}</strong>
+                  </div>
+
+                  {selectedMonthDetail.relevantIncomeSources && selectedMonthDetail.relevantIncomeSources.map(inc => (
+                    <div key={inc.id} className="flex justify-between items-center py-1">
+                      <div>
+                        <span className="text-slate-200 font-medium">{inc.title}</span>
+                        <span className="text-[10px] text-slate-400 block">{inc.category} • Received by {inc.receivedBy} ({inc.recurrence})</span>
+                      </div>
+                      <strong className="text-emerald-300">+{currency} {Number(inc.amount).toLocaleString()}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Expenses this Month */}
+              <div>
+                <h4 className="text-xs font-semibold text-rose-400 uppercase tracking-wider mb-2">
+                  Expenses Logged ({selectedMonthDetail.monthExpenses?.length || 0})
+                </h4>
+                <div className="bg-slate-950 rounded-xl border border-slate-800 p-3 space-y-2 text-xs">
+                  {(!selectedMonthDetail.monthExpenses || selectedMonthDetail.monthExpenses.length === 0) ? (
+                    <div className="text-slate-500 italic text-center py-2">No individual expenses logged for this month.</div>
+                  ) : (
+                    selectedMonthDetail.monthExpenses.map(exp => (
+                      <div key={exp.id} className="flex justify-between items-center py-1 border-b border-slate-800/40 last:border-0">
+                        <div>
+                          <span className="text-white font-medium">{exp.title}</span>
+                          <span className="text-[10px] text-slate-400 block">{exp.category} • Paid by {exp.paidBy} on {exp.date}</span>
+                        </div>
+                        <strong className="text-slate-200">{currency} {Number(exp.amount).toLocaleString()}</strong>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-4 border-t border-slate-800 mt-2">
+              <button 
+                onClick={() => setSelectedMonthDetail(null)}
+                className="px-4 py-2 bg-slate-800 text-slate-200 text-xs rounded-xl font-medium hover:bg-slate-700 transition"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

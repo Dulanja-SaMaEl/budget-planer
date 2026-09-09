@@ -96,3 +96,22 @@ INSERT INTO savings_goals (household_id, title, category, target_amount, current
 ('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'Emergency Fund (6 Months)', 'Emergency', 2000000.00, 1200000.00),
 ('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'Dream Vacation Trip', 'Vacation', 600000.00, 350000.00),
 ('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'House Downpayment Fund', 'Milestone', 5000000.00, 2500000.00);
+
+-- Income Methods & Project Inflows (Freelance, Client Projects, Side Hustles, Investments)
+CREATE TABLE IF NOT EXISTS income_sources (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    household_id UUID REFERENCES households(id) ON DELETE CASCADE,
+    title VARCHAR(150) NOT NULL,
+    amount DECIMAL(12, 2) NOT NULL,
+    received_by_name VARCHAR(100) NOT NULL,
+    category VARCHAR(50) DEFAULT 'Project',
+    recurrence VARCHAR(20) DEFAULT 'monthly',
+    income_date DATE DEFAULT CURRENT_DATE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Seed Sample Project & Freelance Income Methods
+INSERT INTO income_sources (household_id, title, amount, received_by_name, category, recurrence, income_date) VALUES
+('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'Mobile App Development Client Project', 120000.00, 'Dulanja', 'Project', 'monthly', '2026-08-20'),
+('a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d', 'Brand Identity & UI Kit Design', 75000.00, 'Diyana', 'Freelance', 'monthly', '2026-08-18');
+
